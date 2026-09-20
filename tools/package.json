@@ -1,0 +1,12 @@
+{
+  "name": "live-moment-admin-tools",
+  "private": true,
+  "type": "module",
+  "description": "One-off local tools for the Live Moment admin project (not deployed).",
+  "scripts": {
+    "set-admin": "node set-admin-claim.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}

@@ -1,0 +1,139 @@
+rules_version = '2';
+
+// Live Moment Firestore security rules with admin console access.
+//
+// This extends the existing backend-only rules. Apply it in the Live Moment
+// Firebase project (Firestore -> Rules). Admin authorization uses the Firebase
+// Authentication custom claim `admin: true` (see admin/tools/set-admin-claim.mjs).
+//
+// Do NOT commit real admin email addresses here or in admin/public/config.js:
+// config.js is served publicly, and committed rules are visible to anyone with
+// repository access. The custom claim keeps identities private. If you must use
+// an email allow-list, add it only in the Firebase Console rules editor, not here.
+//
+// Destructive operations (Auth user deletion, storage purge) must still run
+// through the trusted backend.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+      // Email allow-list alternative (add your address only in the Firebase
+      // Console rules editor, never commit it):
+      //
+      // return isSignedIn() && (
+      //   request.auth.token.admin == true ||
+      //   request.auth.token.email in ["admin@example.com"]
+      // );
+    }
+
+    function owner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ---------------------------------------------------------------- users
+    match /users/{uid} {
+      // Owner may read their own profile; admins may read any profile.
+      allow read: if owner(uid) || isAdmin();
+
+      // Profiles are backend-managed. Admins may only change operational flags.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly([
+               "disabled",
+               "supportReview",
+               "standaloneWallpapersGranted",
+               "plan",
+               "updatedAt",
+               "updatedBy"
+             ]);
+      allow create, delete: if false;
+
+      match /generations/{id} {
+        allow read: if owner(uid) || isAdmin();
+        allow write: if false;
+      }
+    }
+
+    // ------------------------------------------------ generation operations
+    match /generationJobs/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /generationUsageEvents/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /generationQuotas/{uid} {
+      allow read: if owner(uid) || isAdmin();
+      allow write: if false;
+    }
+
+    match /billingPurchases/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /billingNotifications/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /pricingConfigs/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // ------------------------------------------------------- remote control
+    // AI routing, plans, app settings and templates are admin-owned config.
+    match /ai_routing/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /plans/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /admin_config/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /motionTemplates/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+      match /versions/{version} {
+        allow read: if isAdmin();
+        allow write: if isAdmin();
+      }
+    }
+
+    // ---------------------------------------------------------------- audit
+    // Append-only from the admin client: create and read, never update/delete.
+    match /admin_audit_logs/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /admin_error_logs/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // --------------------------------------------------------------- default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
