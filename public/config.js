@@ -13,7 +13,7 @@
  */
 window.LIVE_MOMENT_ADMIN_CONFIG = Object.freeze({
   firebase: {
-    apiKey: "AIzaSyCZlaQ0TEJ8a4iOFNZgrf_ZKpuDQYY0dZk",
+    apiKey: "AIzaSyAxeW6HlFB9cM8ANmcCSQhvutfGs3EbgTc",
     authDomain: "living-memories-staging.firebaseapp.com",
     projectId: "living-memories-staging",
     storageBucket: "living-memories-staging.firebasestorage.app",
