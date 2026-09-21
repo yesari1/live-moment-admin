@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  documentId,
   getDoc,
   getDocs,
   limit,
@@ -10,7 +11,12 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  startAfter,
   updateDoc,
+  type DocumentData,
+  type Query,
+  type QueryDocumentSnapshot,
+  type QuerySnapshot,
 } from "firebase/firestore";
 import { getDb } from "@/lib/firebase";
 import { toDate } from "@/lib/format";
@@ -26,7 +32,9 @@ import type {
   RawJobStatus,
   RoutingConfig,
   TemplateRecord,
+  TemplateVersionRecord,
 } from "@/types";
+import { isRecord, mapTemplateVersion } from "@/lib/template-version";
 import { defaultRoutingConfig, routingDocId } from "@/data/routing";
 import { DEFAULT_PLANS } from "@/data/plans";
 import type { GenerationType, RoutingContext } from "@/types";
@@ -310,20 +318,118 @@ export async function fetchUsageFromFirestore() {
   }
 }
 
+/**
+ * Read every template. The admin console is meant to show the full catalog, so
+ * we page through the whole `motionTemplates` collection by document id instead
+ * of ordering by `sortOrder` (which silently drops documents that lack the
+ * field) or capping the result at a fixed limit. Ordering by `__name__` needs no
+ * composite index and is stable across pages.
+ */
 export async function fetchTemplatesFromFirestore(): Promise<
   TemplateRecord[] | null
 > {
+  const db = getDb();
+  if (!db) return null;
+  const pageSize = 300;
+  const maxTemplates = 5000;
   try {
-    return (await readCollection(
-      COLLECTIONS.templates,
-      mapTemplate,
-      500,
-      "sortOrder",
-    )) as TemplateRecord[] | null;
+    const templates: TemplateRecord[] = [];
+    let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+    while (templates.length < maxTemplates) {
+      const base = collection(db, COLLECTIONS.templates);
+      const pageQuery: Query<DocumentData> = cursor
+        ? query(
+            base,
+            orderBy(documentId()),
+            startAfter(cursor),
+            limit(pageSize),
+          )
+        : query(base, orderBy(documentId()), limit(pageSize));
+      const snapshot: QuerySnapshot<DocumentData> = await getDocs(pageQuery);
+      snapshot.docs.forEach((d) =>
+        templates.push(mapTemplate(d.id, d.data() as RawDoc)),
+      );
+      if (snapshot.size < pageSize) break;
+      cursor = snapshot.docs[snapshot.docs.length - 1];
+    }
+    // Display order: lowest sortOrder first, then title. Client-side so that
+    // documents missing `sortOrder` still appear (they default to 0).
+    templates.sort(
+      (a, b) =>
+        (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+        a.title.localeCompare(b.title),
+    );
+    return templates;
   } catch (error) {
     console.warn("[admin] Failed to read motionTemplates", error);
     return null;
   }
+}
+
+/* ----------------------------------------------------- template versions */
+
+function inlineVersions(
+  data: RawDoc,
+): TemplateVersionRecord[] | null {
+  const raw = data.versions;
+  if (Array.isArray(raw)) {
+    return raw.map((entry, index) => {
+      const map: RawDoc = isRecord(entry) ? entry : { prompt: entry };
+      const id = str(map.version) ?? str(map.id) ?? String(index + 1);
+      return mapTemplateVersion(id, map);
+    });
+  }
+  if (isRecord(raw)) {
+    return Object.entries(raw).map(([key, entry]) => {
+      const map: RawDoc = isRecord(entry) ? entry : { prompt: entry };
+      return mapTemplateVersion(str(map.version) ?? key, map);
+    });
+  }
+  return null;
+}
+
+/**
+ * Read the version history for one template. Versions live under the
+ * `motionTemplates/{id}/versions` subcollection; if that is empty we also
+ * support an inline `versions` array/map stored on the template document.
+ */
+export async function fetchTemplateVersionsFromFirestore(
+  templateId: string,
+): Promise<TemplateVersionRecord[] | null> {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const col = collection(db, COLLECTIONS.templates, templateId, "versions");
+    const snapshot = await getDocs(
+      query(col, orderBy(documentId()), limit(300)),
+    );
+    if (!snapshot.empty) {
+      return snapshot.docs
+        .map((d) => mapTemplateVersion(d.id, d.data() as RawDoc))
+        .sort(compareVersions);
+    }
+    const templateSnap = await getDoc(
+      doc(db, COLLECTIONS.templates, templateId),
+    );
+    if (!templateSnap.exists()) return [];
+    const inline = inlineVersions(templateSnap.data() as RawDoc);
+    return (inline ?? []).sort(compareVersions);
+  } catch (error) {
+    console.warn("[admin] Failed to read motionTemplates versions", error);
+    return null;
+  }
+}
+
+function compareVersions(
+  a: TemplateVersionRecord,
+  b: TemplateVersionRecord,
+): number {
+  const av = a.versionNumber ?? -1;
+  const bv = b.versionNumber ?? -1;
+  if (bv !== av) return bv - av;
+  return (
+    (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0)
+  );
 }
 
 export async function fetchRoutingFromFirestore(

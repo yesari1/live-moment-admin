@@ -120,6 +120,41 @@ export function buildDailySeries(
   return points;
 }
 
+/**
+ * Daily estimated AI cost derived from the same source as
+ * `computeMetrics().estimatedCostToday`: the `generationUsageEvents`
+ * collection's `estimatedCostUsd` (bucketed by `startedAt`).
+ */
+export function buildCostSeries(
+  usageEvents: UsageEvent[],
+  days: number,
+): TimeSeriesPoint[] {
+  const points: TimeSeriesPoint[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    dayStart.setDate(dayStart.getDate() - i);
+    const start = dayStart.getTime();
+    const end = start + DAY_MS;
+    const total = usageEvents.reduce((sum, event) => {
+      const t = toDate(event.startedAt)?.getTime() ?? 0;
+      if (t < start || t >= end) return sum;
+      return sum + (event.estimatedCostUsd ?? 0);
+    }, 0);
+    const value = Number(total.toFixed(4));
+    points.push({
+      date: dayStart.toISOString().slice(0, 10),
+      label: dayStart.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
+      value,
+      cost: value,
+    });
+  }
+  return points;
+}
+
 export function buildUserSeries(
   users: { createdAt: Date | null }[],
   days: number,

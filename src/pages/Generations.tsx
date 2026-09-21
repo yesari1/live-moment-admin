@@ -30,6 +30,7 @@ import { CostDisplay } from "@/components/shared/cost-display";
 import {
   FallbackBadge,
   GenerationStatusBadge,
+  MediaTypeBadge,
 } from "@/components/shared/status-badge";
 import { DateRangeFilter, resolveDateRange } from "@/components/shared/date-range-filter";
 import { useAsyncData } from "@/hooks/use-async-data";
@@ -117,11 +118,7 @@ export function GenerationsPage() {
       {
         accessorKey: "type",
         header: "Type",
-        cell: ({ row }) => (
-          <Badge variant={row.original.type === "image" ? "info" : "default"}>
-            {row.original.type === "image" ? "Image" : "Video"}
-          </Badge>
-        ),
+        cell: ({ row }) => <MediaTypeBadge type={row.original.type} />,
       },
       {
         accessorKey: "model",

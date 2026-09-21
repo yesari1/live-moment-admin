@@ -2,7 +2,6 @@ import * as React from "react";
 import {
   Activity,
   BadgeDollarSign,
-  CircleCheck,
   CircleX,
   Image as ImageIcon,
   TrendingUp,
@@ -51,6 +50,7 @@ import {
 } from "@/services/data-service";
 import {
   breakdown,
+  buildCostSeries,
   buildDailySeries,
   buildUserSeries,
   computeMetrics,
@@ -60,7 +60,6 @@ import {
   formatCost,
   formatDate,
   formatNumber,
-  formatPercent,
   formatRelative,
 } from "@/lib/format";
 import {
@@ -71,7 +70,7 @@ import { planLabel } from "@/data/plans";
 import type { AuditLog, DateRange, GenerationRecord } from "@/types";
 
 const costConfig = {
-  cost: { label: "Cost", color: "hsl(var(--chart-1))" },
+  cost: { label: "AI cost", color: "hsl(var(--chart-1))" },
 } satisfies ChartConfig;
 
 const volumeConfig = {
@@ -102,7 +101,18 @@ export function DashboardPage() {
     from: null,
     to: null,
   });
-  const days = range.preset === "today" ? 1 : range.preset === "7d" ? 7 : 30;
+  const rangeDates = React.useMemo(() => resolveDateRange(range), [range]);
+  const days = React.useMemo(() => {
+    if (range.preset === "today") return 1;
+    if (range.preset === "7d") return 7;
+    if (range.preset === "30d") return 30;
+    const { from, to } = rangeDates;
+    if (from && to) {
+      const diff = Math.ceil((to.getTime() - from.getTime()) / 86_400_000) + 1;
+      return Math.min(90, Math.max(1, diff));
+    }
+    return 30;
+  }, [range.preset, rangeDates]);
 
   const users = useAsyncData(fetchUsers);
   const generations = useAsyncData(fetchGenerations);
@@ -133,9 +143,15 @@ export function DashboardPage() {
     () => buildUserSeries(enrichedUsers, days),
     [enrichedUsers, days],
   );
+  // Same source (generationUsageEvents.estimatedCostUsd) as the "AI cost today"
+  // card, so the chart's most recent bucket matches the card value.
+  const costSeries = React.useMemo(
+    () => buildCostSeries(usage.data ?? [], days),
+    [usage.data, days],
+  );
 
   const rangeFiltered = React.useMemo(() => {
-    const { from, to } = resolveDateRange(range);
+    const { from, to } = rangeDates;
     if (!from || !to) return generations.data ?? [];
     const start = from.getTime();
     const end = to.getTime();
@@ -143,7 +159,7 @@ export function DashboardPage() {
       const t = g.createdAt?.getTime() ?? 0;
       return t >= start && t <= end;
     });
-  }, [generations.data, range]);
+  }, [generations.data, rangeDates]);
 
   const byPlan = React.useMemo(
     () => breakdown(rangeFiltered.map((g) => planLabel(planForGeneration(g, enrichedUsers)))),
@@ -197,6 +213,7 @@ export function DashboardPage() {
         actions={<DateRangeFilter value={range} onChange={setRange} />}
       />
 
+      {/* Row 1 — audience and top-line activity. */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Total users"
@@ -231,6 +248,7 @@ export function DashboardPage() {
         />
       </div>
 
+      {/* Row 2 — operational generation health. */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Active users today"
@@ -256,38 +274,6 @@ export function DashboardPage() {
           value={formatNumber(metrics?.failedGenerationsToday)}
           icon={CircleX}
           hint={`${formatNumber(metrics?.successfulGenerationsToday)} succeeded`}
-          loading={loading}
-        />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Image success rate"
-          value={formatPercent(metrics?.imageSuccessRate)}
-          icon={CircleCheck}
-          loading={loading}
-        />
-        <StatCard
-          label="Video success rate"
-          value={formatPercent(metrics?.videoSuccessRate)}
-          icon={CircleCheck}
-          loading={loading}
-        />
-        <StatCard
-          label="Monthly AI cost"
-          value={formatCost(metrics?.estimatedCostMonth)}
-          icon={BadgeDollarSign}
-          loading={loading}
-        />
-        <StatCard
-          label="Avg. generation cost today"
-          value={formatCost(
-            metrics && metrics.imageGenerationsToday + metrics.videoGenerationsToday > 0
-              ? (metrics.estimatedCostToday /
-                  (metrics.imageGenerationsToday + metrics.videoGenerationsToday))
-              : null,
-          )}
-          icon={BadgeDollarSign}
           loading={loading}
         />
       </div>
@@ -362,28 +348,6 @@ export function DashboardPage() {
             <Bar dataKey="success" stackId="a" fill="var(--color-success)" radius={[3, 3, 0, 0]} />
             <Bar dataKey="failed" stackId="a" fill="var(--color-failed)" radius={[3, 3, 0, 0]} />
           </BarChart>
-        </ChartCard>
-
-        <ChartCard
-          title="AI cost over time"
-          description="Estimated provider cost per day (USD)."
-          loading={loading}
-          config={costConfig}
-        >
-          <AreaChart data={series}>
-            <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} />
-            <YAxis tickLine={false} axisLine={false} width={44} />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <Area
-              dataKey="cost"
-              type="monotone"
-              stroke="var(--color-cost)"
-              fill="var(--color-cost)"
-              fillOpacity={0.2}
-              strokeWidth={2}
-            />
-          </AreaChart>
         </ChartCard>
 
         <ChartCard
@@ -466,6 +430,45 @@ export function DashboardPage() {
           />
         </ChartCard>
       </div>
+
+      <ChartCard
+        title="AI Cost Trend"
+        description={`Daily estimated provider cost from usage events (USD) · last ${days} day${
+          days === 1 ? "" : "s"
+        }`}
+        loading={loading}
+        config={costConfig}
+      >
+        <AreaChart data={costSeries}>
+          <CartesianGrid vertical={false} strokeDasharray="3 3" />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} />
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            width={64}
+            tickFormatter={(value) => formatCost(Number(value))}
+          />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                formatter={(value) => (
+                  <span className="font-mono font-medium tabular-nums text-foreground">
+                    {formatCost(Number(value))}
+                  </span>
+                )}
+              />
+            }
+          />
+          <Area
+            dataKey="cost"
+            type="monotone"
+            stroke="var(--color-cost)"
+            fill="var(--color-cost)"
+            fillOpacity={0.2}
+            strokeWidth={2}
+          />
+        </AreaChart>
+      </ChartCard>
     </div>
   );
 }

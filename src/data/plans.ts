@@ -3,8 +3,8 @@ import type { PlanConfig, PlanId } from "@/types";
 export const PLAN_LABELS: Record<PlanId, string> = {
   free: "Free",
   single: "Single",
-  live_weather: "LiveWeather",
-  live_weather_plus: "LiveWeather Plus",
+  live_weather: "Lite",
+  live_weather_plus: "Plus",
 };
 
 export const PLAN_ORDER: PlanId[] = [
@@ -49,7 +49,7 @@ export const DEFAULT_PLANS: PlanConfig[] = [
   },
   {
     id: "live_weather",
-    displayName: "LiveWeather",
+    displayName: "Lite",
     enabled: true,
     imageGenerations: 4,
     videoGenerations: 2,
@@ -65,7 +65,7 @@ export const DEFAULT_PLANS: PlanConfig[] = [
   },
   {
     id: "live_weather_plus",
-    displayName: "LiveWeather Plus",
+    displayName: "Plus",
     enabled: true,
     imageGenerations: 10,
     videoGenerations: 5,

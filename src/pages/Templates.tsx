@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
+  Check,
   Copy,
   Loader2,
   MoreHorizontal,
@@ -44,21 +45,49 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
 import { DataTable } from "@/components/shared/data-table";
 import { PageHeader } from "@/components/shared/page-header";
 import { ErrorState } from "@/components/shared/error-state";
+import { EmptyState } from "@/components/shared/empty-state";
 import { StatCard } from "@/components/shared/stat-card";
+import { PanelSkeleton } from "@/components/shared/loading-skeletons";
 import { ConfirmActionDialog } from "@/components/shared/confirm-action-dialog";
+import { MediaTypeBadge } from "@/components/shared/status-badge";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAuth } from "@/hooks/use-auth";
 import {
   deleteTemplate,
+  fetchTemplateVersions,
   fetchTemplates,
   saveTemplate,
 } from "@/services/data-service";
-import { formatNumber, formatRelative } from "@/lib/format";
+import {
+  formatDateTime,
+  formatNumber,
+  formatRelative,
+} from "@/lib/format";
+import {
+  getModelDisplayName,
+  getProviderDisplayName,
+} from "@/data/providers";
 import { PLAN_LABELS, PLAN_ORDER } from "@/data/plans";
-import type { GenerationType, PlanId, TemplateRecord } from "@/types";
+import { promptToText, scalarToString } from "@/lib/template-version";
+import { cn } from "@/lib/utils";
+import type {
+  GenerationType,
+  PlanId,
+  PromptValue,
+  TemplateRecord,
+  TemplateVersionRecord,
+} from "@/types";
 
 const schema = z.object({
   id: z
@@ -99,6 +128,7 @@ export function TemplatesPage() {
   const [editing, setEditing] = React.useState<TemplateRecord | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [deleting, setDeleting] = React.useState<TemplateRecord | null>(null);
+  const [detail, setDetail] = React.useState<TemplateRecord | null>(null);
 
   const templates = query.data ?? [];
 
@@ -182,11 +212,7 @@ export function TemplatesPage() {
       {
         accessorKey: "type",
         header: "Type",
-        cell: ({ row }) => (
-          <Badge variant={row.original.type === "image" ? "info" : "default"}>
-            {row.original.type}
-          </Badge>
-        ),
+        cell: ({ row }) => <MediaTypeBadge type={row.original.type} />,
       },
       {
         accessorKey: "enabled",
@@ -331,8 +357,14 @@ export function TemplatesPage() {
         emptyTitle="No templates found"
         emptyDescription="Create a template to make it available for remote generation."
         getRowId={(row) => row.id}
-        onRowClick={(row) => setEditing(row)}
+        onRowClick={(row) => setDetail(row)}
         initialPageSize={20}
+      />
+
+      <TemplateDetailDrawer
+        template={detail}
+        open={detail !== null}
+        onOpenChange={(open) => !open && setDetail(null)}
       />
 
       <TemplateDialog
@@ -651,4 +683,343 @@ function toValues(template: TemplateRecord): FormValues {
     defaultLoopFix: template.defaultLoopFix,
     supportedPlans: template.supportedPlans,
   };
+}
+
+/* --------------------------------------------------- detail + versions */
+
+function DetailField({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="text-sm">{value}</div>
+    </div>
+  );
+}
+
+function TemplateDetailDrawer({
+  template,
+  open,
+  onOpenChange,
+}: {
+  template: TemplateRecord | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="overflow-y-auto sm:max-w-2xl">
+        {template ? (
+          <TemplateDetail key={template.id} template={template} />
+        ) : null}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function TemplateDetail({ template }: { template: TemplateRecord }) {
+  const query = useAsyncData(
+    () => fetchTemplateVersions(template.id),
+    [template.id],
+  );
+  const versions = query.data ?? [];
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+
+  const isCurrent = React.useCallback(
+    (version: TemplateVersionRecord) =>
+      version.isActive ||
+      (version.versionNumber != null &&
+        version.versionNumber === template.activeVersion),
+    [template.activeVersion],
+  );
+
+  React.useEffect(() => {
+    if (!versions.length) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((current) => {
+      if (current && versions.some((v) => v.id === current)) return current;
+      const active = versions.find(isCurrent);
+      return (active ?? versions[0]).id;
+    });
+  }, [versions, isCurrent]);
+
+  const selected = versions.find((v) => v.id === selectedId) ?? null;
+
+  return (
+    <>
+      <SheetHeader>
+        <SheetTitle className="flex flex-wrap items-center gap-2 pr-6">
+          {template.title}
+          <MediaTypeBadge type={template.type} />
+          <Badge variant={template.enabled ? "success" : "muted"}>
+            {template.enabled ? "Active" : "Inactive"}
+          </Badge>
+        </SheetTitle>
+        <SheetDescription className="space-y-1">
+          <span className="block font-mono text-xs">{template.id}</span>
+          <span className="block">
+            {template.category} · active v{template.activeVersion} · updated{" "}
+            {formatRelative(template.updatedAt)}
+          </span>
+        </SheetDescription>
+      </SheetHeader>
+
+      <div className="space-y-5 px-6 pb-8">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <DetailField label="Template ID" value={template.id} />
+          <DetailField label="Category" value={template.category} />
+          <DetailField label="Type" value={<MediaTypeBadge type={template.type} />} />
+          <DetailField
+            label="Status"
+            value={template.enabled ? "Enabled" : "Disabled"}
+          />
+          <DetailField label="Sort order" value={template.sortOrder} />
+          <DetailField label="Active version" value={`v${template.activeVersion}`} />
+          <DetailField
+            label="Loop fix"
+            value={template.defaultLoopFix ? "Yes" : "No"}
+          />
+          <DetailField label="Updated" value={formatDateTime(template.updatedAt)} />
+        </div>
+
+        {template.description && (
+          <p className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+            {template.description}
+          </p>
+        )}
+
+        <Separator />
+
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Versions</p>
+            {!query.loading && !query.error && (
+              <span className="text-xs text-muted-foreground">
+                {versions.length} version{versions.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+
+          {query.error ? (
+            <ErrorState message={query.error} onRetry={query.refresh} />
+          ) : query.loading ? (
+            <PanelSkeleton rows={3} />
+          ) : versions.length ? (
+            <div className="space-y-2">
+              {versions.map((version) => {
+                const active = isCurrent(version);
+                const isSelected = version.id === selectedId;
+                return (
+                  <button
+                    key={version.id}
+                    type="button"
+                    onClick={() => setSelectedId(version.id)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors",
+                      isSelected
+                        ? "border-primary/60 bg-muted/50"
+                        : "hover:bg-muted/40",
+                    )}
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="truncate text-sm font-medium">
+                        {version.versionNumber != null
+                          ? `v${version.versionNumber}`
+                          : version.id}
+                        {active && (
+                          <span className="ml-2 text-xs text-success">
+                            current
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {formatDateTime(version.createdAt ?? version.updatedAt)}
+                        {version.model
+                          ? ` · ${getModelDisplayName(version.model)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {version.type && <MediaTypeBadge type={version.type} />}
+                      {active && <Badge variant="success">Active</Badge>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              title="No versions found"
+              description="This template has no version documents under motionTemplates/{id}/versions yet."
+              className="py-8"
+            />
+          )}
+        </section>
+
+        {selected && (
+          <VersionDetail
+            version={selected}
+            active={isCurrent(selected)}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+function VersionDetail({
+  version,
+  active,
+}: {
+  version: TemplateVersionRecord;
+  active: boolean;
+}) {
+  return (
+    <section className="space-y-4 rounded-lg border bg-card/40 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="text-sm font-semibold">
+          Version {version.versionNumber ?? version.id}
+        </h4>
+        {active && <Badge variant="success">Active</Badge>}
+        {version.type && <MediaTypeBadge type={version.type} />}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <DetailField
+          label="Version"
+          value={version.versionNumber ?? version.id}
+        />
+        <DetailField
+          label="Provider"
+          value={version.provider ? getProviderDisplayName(version.provider) : "—"}
+        />
+        <DetailField
+          label="Model"
+          value={version.model ? getModelDisplayName(version.model) : "—"}
+        />
+        <DetailField label="Created" value={formatDateTime(version.createdAt)} />
+        <DetailField label="Updated" value={formatDateTime(version.updatedAt)} />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Prompts
+        </p>
+        {version.prompts.length ? (
+          version.prompts.map((prompt) => (
+            <PromptCard
+              key={`${prompt.key}-${prompt.label}`}
+              label={prompt.label}
+              value={prompt.value}
+            />
+          ))
+        ) : (
+          <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+            No prompt fields are stored on this version.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Model settings / parameters
+        </p>
+        <ConfigDetails config={version.config} />
+      </div>
+
+      {version.attributes.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Attributes
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {version.attributes.map((attribute) => (
+              <Badge key={attribute.key} variant="muted">
+                {attribute.label}: {scalarToString(attribute.value)}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PromptCard({ label, value }: { label: string; value: PromptValue }) {
+  const [copied, setCopied] = React.useState(false);
+  const text = promptToText(value);
+
+  const copy = async () => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable.
+    }
+  };
+
+  return (
+    <div className="rounded-lg border bg-muted/20">
+      <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </p>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2"
+          onClick={() => void copy()}
+          disabled={!text}
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-relaxed text-foreground">
+        {text || "—"}
+      </pre>
+    </div>
+  );
+}
+
+function ConfigDetails({
+  config,
+}: {
+  config: Record<string, unknown> | null;
+}) {
+  if (!config || !Object.keys(config).length) {
+    return (
+      <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+        No model configuration is stored for this version.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      {Object.entries(config).map(([key, value]) => (
+        <div
+          key={key}
+          className="flex items-start justify-between gap-3 rounded-md border px-3 py-1.5 text-xs"
+        >
+          <span className="shrink-0 text-muted-foreground">{key}</span>
+          <span className="max-w-[70%] whitespace-pre-wrap break-words text-right font-mono text-foreground">
+            {scalarToString(value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }

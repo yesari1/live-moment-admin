@@ -4,6 +4,7 @@ import type {
   AccountPlan,
   AccountStatus,
   GenerationStatus,
+  GenerationType,
   LogSeverity,
 } from "@/types";
 import { PLAN_LABELS } from "@/data/plans";
@@ -42,6 +43,41 @@ export function GenerationStatusBadge({
         className={cn("h-3 w-3", status === "processing" && "animate-spin")}
       />
       {style.label}
+    </Badge>
+  );
+}
+
+const mediaTypeStyles: Record<
+  GenerationType,
+  { variant: "info" | "purple"; label: string }
+> = {
+  image: { variant: "info", label: "Image" },
+  video: { variant: "purple", label: "Video" },
+};
+
+/**
+ * Tag for a generation/template media type. Image and Video use clearly
+ * different theme colours; any unknown future value falls back to a neutral
+ * badge so the table never breaks.
+ */
+export function MediaTypeBadge({
+  type,
+  className,
+}: {
+  type: GenerationType | string | null | undefined;
+  className?: string;
+}) {
+  if (type === "image" || type === "video") {
+    const style = mediaTypeStyles[type];
+    return (
+      <Badge variant={style.variant} className={className}>
+        {style.label}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="muted" className={cn("capitalize", className)}>
+      {type ? String(type) : "Unknown"}
     </Badge>
   );
 }

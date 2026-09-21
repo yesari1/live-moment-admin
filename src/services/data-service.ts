@@ -7,6 +7,7 @@ import type {
   PlanConfig,
   RoutingConfig,
   TemplateRecord,
+  TemplateVersionRecord,
   UsageEvent,
 } from "@/types";
 import { isFirebaseConfigured, runtimeConfig } from "@/lib/config";
@@ -21,6 +22,7 @@ import {
   fetchGenerationsFromFirestore,
   fetchPlansFromFirestore,
   fetchRoutingFromFirestore,
+  fetchTemplateVersionsFromFirestore,
   fetchTemplatesFromFirestore,
   fetchUsageFromFirestore,
   fetchUsersFromFirestore,
@@ -36,6 +38,7 @@ import {
   pushDemoLog,
   recordDemoAudit,
 } from "@/services/demo-store";
+import { demoTemplateVersions } from "@/services/demo-data";
 import { backendDeleteUser } from "@/services/backend";
 import { toDate } from "@/lib/format";
 
@@ -247,6 +250,22 @@ export async function fetchUsage(): Promise<UsageEvent[]> {
 export async function fetchTemplates(): Promise<TemplateRecord[]> {
   if (!isLiveData) return delay(clone(demoState.templates));
   return live(() => fetchTemplatesFromFirestore(), "Templates");
+}
+
+export async function fetchTemplateVersions(
+  templateId: string,
+): Promise<TemplateVersionRecord[]> {
+  const template = demoState.templates.find((t) => t.id === templateId);
+  if (!isLiveData) {
+    return delay(template ? demoTemplateVersions(template) : []);
+  }
+  const result = await fetchTemplateVersionsFromFirestore(templateId);
+  if (result === null) {
+    throw new Error(
+      "Template versions could not be read from Firestore. Verify that the admin Firestore security rules are deployed and that this account is authorized.",
+    );
+  }
+  return result;
 }
 
 export async function saveTemplate(

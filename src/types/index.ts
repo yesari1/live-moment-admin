@@ -131,6 +131,45 @@ export interface TemplatePromptVersion {
   createdAt: Date | null;
 }
 
+/** A prompt-like value read from a template version document. */
+export type PromptValue =
+  | string
+  | number
+  | boolean
+  | Record<string, unknown>
+  | unknown[]
+  | null;
+
+/** A single readable section of a template version (prompt, config, …). */
+export interface TemplateVersionSection {
+  key: string;
+  label: string;
+  value: PromptValue;
+}
+
+/**
+ * A template prompt version as stored under
+ * `motionTemplates/{templateId}/versions/{versionId}` (or an inline
+ * `versions` field on the template document).
+ */
+export interface TemplateVersionRecord {
+  id: string;
+  /** Numeric version when it can be derived from the id or a field. */
+  versionNumber: number | null;
+  isActive: boolean;
+  type: GenerationType | null;
+  provider: string | null;
+  model: string | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+  /** Prompt / negative prompt / system prompt sections, in display order. */
+  prompts: TemplateVersionSection[];
+  /** Merged generation configuration (parameters, model settings, …). */
+  config: Record<string, unknown> | null;
+  /** Other useful scalar attributes (quality, resolution, duration, …). */
+  attributes: TemplateVersionSection[];
+}
+
 export interface PlanConfig {
   id: PlanId;
   displayName: string;

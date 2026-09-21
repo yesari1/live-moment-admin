@@ -44,15 +44,15 @@ export const ROUTING_TIERS: RoutingTierMeta[] = [
   },
   {
     id: "live_weather",
-    label: "LiveWeather",
-    description: "Generations for LiveWeather subscribers.",
+    label: "Lite",
+    description: "Generations for Lite subscribers.",
     imageContexts: ["live_weather"],
     videoContexts: ["live_weather"],
   },
   {
     id: "live_weather_plus",
-    label: "LiveWeather Plus",
-    description: "Generations for LiveWeather Plus subscribers.",
+    label: "Plus",
+    description: "Generations for Plus subscribers.",
     imageContexts: ["live_weather_plus"],
     videoContexts: ["live_weather_plus"],
   },
@@ -76,13 +76,13 @@ export const IMAGE_CONTEXTS: RoutingContextMeta[] = [
   },
   {
     id: "live_weather",
-    label: "LiveWeather",
-    description: "LiveWeather subscription generation.",
+    label: "Lite",
+    description: "Lite subscription generation.",
   },
   {
     id: "live_weather_plus",
-    label: "LiveWeather Plus",
-    description: "LiveWeather Plus subscription generation.",
+    label: "Plus",
+    description: "Plus subscription generation.",
   },
 ];
 
@@ -94,13 +94,13 @@ export const VIDEO_CONTEXTS: RoutingContextMeta[] = [
   },
   {
     id: "live_weather",
-    label: "LiveWeather",
-    description: "LiveWeather subscription video generation.",
+    label: "Lite",
+    description: "Lite subscription video generation.",
   },
   {
     id: "live_weather_plus",
-    label: "LiveWeather Plus",
-    description: "LiveWeather Plus subscription video generation.",
+    label: "Plus",
+    description: "Plus subscription video generation.",
   },
 ];
 

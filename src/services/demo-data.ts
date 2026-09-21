@@ -13,6 +13,7 @@ import type {
   RoutingConfig,
   RoutingContext,
   TemplateRecord,
+  TemplateVersionRecord,
   TimeSeriesPoint,
   UsageEvent,
 } from "@/types";
@@ -291,6 +292,72 @@ export const demoTemplates: TemplateRecord[] = TEMPLATE_SEEDS.map(
     updatedAt: iso(int(1, 120) * DAY_MS),
   }),
 );
+
+/**
+ * Demo-only version history for a template. Mirrors the
+ * `motionTemplates/{id}/versions` subcollection shape so the version viewer is
+ * usable in demo mode. Real data always comes from Firestore.
+ */
+export function demoTemplateVersions(
+  template: TemplateRecord,
+): TemplateVersionRecord[] {
+  const count = Math.max(1, Math.min(template.activeVersion, 4));
+  return Array.from({ length: count }, (_, index) => {
+    const version = template.activeVersion - index;
+    const isActive = version === template.activeVersion;
+    const catalog =
+      template.type === "image"
+        ? PROVIDERS.flatMap((p) => p.imageModels)
+        : PROVIDERS.flatMap((p) => p.videoModels);
+    const model = catalog[(version + template.title.length) % catalog.length];
+    return {
+      id: String(version),
+      versionNumber: version,
+      isActive,
+      type: template.type,
+      provider: model?.provider ?? null,
+      model: model?.id ?? null,
+      createdAt: iso((index + 1) * 9 * DAY_MS),
+      updatedAt: iso((index + 1) * 9 * DAY_MS),
+      prompts: [
+        {
+          key: "keyframePrompt",
+          label: "Keyframe prompt",
+          value: {
+            subject: template.title,
+            scene: template.category.replace(/_/g, " "),
+            lighting: "soft cinematic light",
+            negative: "blur, text, watermark",
+          },
+        },
+        {
+          key: "videoPrompt",
+          label: "Video prompt",
+          value: `Animate ${template.title.toLowerCase()} with a subtle, loopable motion and stable camera.`,
+        },
+        {
+          key: "negativePrompt",
+          label: "Negative prompt",
+          value: "flicker, warping, unstable geometry, extra limbs",
+        },
+      ],
+      config: {
+        quality: "high",
+        resolution: template.type === "video" ? "1080p" : "1024x1024",
+        durationSeconds: template.type === "video" ? 6 : undefined,
+        guidanceScale: 7.5,
+      },
+      attributes: [
+        { key: "quality", label: "Quality", value: "high" },
+        {
+          key: "resolution",
+          label: "Resolution",
+          value: template.type === "video" ? "1080p" : "1024x1024",
+        },
+      ],
+    };
+  });
+}
 
 /* ------------------------------------------------------------- app config */
 
