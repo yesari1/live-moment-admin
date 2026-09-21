@@ -28,7 +28,6 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ErrorState } from "@/components/shared/error-state";
 import { CostDisplay } from "@/components/shared/cost-display";
 import {
-  FallbackBadge,
   GenerationStatusBadge,
   MediaTypeBadge,
 } from "@/components/shared/status-badge";
@@ -49,6 +48,14 @@ import type { DateRange, GenerationRecord, GenerationStatus, GenerationType } fr
 
 type TypeFilter = GenerationType | "all";
 type StatusFilter = GenerationStatus | "all";
+
+/** Elapsed time between `createdAt` and `completedAt`, or null while unfinished. */
+function completionMs(generation: GenerationRecord): number | null {
+  const created = generation.createdAt?.getTime();
+  const completed = generation.completedAt?.getTime();
+  if (created == null || completed == null || completed < created) return null;
+  return completed - created;
+}
 
 export function GenerationsPage() {
   const query = useAsyncData(fetchGenerations);
@@ -151,9 +158,21 @@ export function GenerationsPage() {
       {
         accessorKey: "durationMs",
         header: "Duration",
+        cell: ({ row }) =>
+          row.original.type === "video" ? (
+            <span className="tabular-nums text-sm">
+              {formatDurationMs(row.original.durationMs)}
+            </span>
+          ) : (
+            <span className="tabular-nums text-sm text-muted-foreground">—</span>
+          ),
+      },
+      {
+        id: "completionTime",
+        header: "Complete time",
         cell: ({ row }) => (
           <span className="tabular-nums text-sm">
-            {formatDurationMs(row.original.durationMs)}
+            {formatDurationMs(completionMs(row.original))}
           </span>
         ),
       },
@@ -161,18 +180,6 @@ export function GenerationsPage() {
         accessorKey: "estimatedCost",
         header: "Est. cost",
         cell: ({ row }) => <CostDisplay value={row.original.estimatedCost} />,
-      },
-      {
-        accessorKey: "retryCount",
-        header: "Retries",
-        cell: ({ row }) => (
-          <span className="tabular-nums text-sm">{row.original.retryCount}</span>
-        ),
-      },
-      {
-        accessorKey: "fallbackUsed",
-        header: "Fallback",
-        cell: ({ row }) => <FallbackBadge used={row.original.fallbackUsed} />,
       },
       {
         accessorKey: "errorCode",

@@ -63,6 +63,13 @@ function str(value: unknown): string | null {
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
+function numLike(value: unknown): number | null {
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return num(value);
+}
 function bool(value: unknown): boolean {
   return value === true;
 }
@@ -137,6 +144,13 @@ export function mapGeneration(id: string, data: RawDoc): GenerationRecord {
   const actualProvider =
     str(data.actualProvider) ?? str(data.provider);
   const err = str(data.errorCode);
+  const createdAt = toDate(
+    (data.createdAt ?? data.created_at ?? data.createdAtEpochMs) as never,
+  );
+  const completedAt = toDate(
+    (data.completedAt ?? data.completed_at ?? data.completedAtEpochMs) as never,
+  );
+  const explicitDurationMs = numLike(data.durationMs) ?? numLike(data.outputDurationMs);
   return {
     id: str(data.id) ?? id,
     uid: str(data.uid) ?? str(data.ownerUid) ?? "",
@@ -159,17 +173,19 @@ export function mapGeneration(id: string, data: RawDoc): GenerationRecord {
     retryCount: num(data.retryCount) ?? 0,
     presetId: str(data.presetId),
     personType: str(data.personType),
-    createdAt: toDate(
-      (data.createdAt ?? data.createdAtEpochMs) as never,
-    ),
+    createdAt,
     startedAt: toDate(
-      (data.startedAt ?? data.startedAtEpochMs) as never,
+      (data.startedAt ?? data.started_at ?? data.startedAtEpochMs) as never,
     ),
-    completedAt: toDate(
-      (data.completedAt ?? data.completedAtEpochMs) as never,
-    ),
-    durationMs: num(data.durationMs) ?? num(data.outputDurationMs),
-    estimatedCost: num(data.estimatedCost) ?? num(data.estimatedCostUsd),
+    completedAt,
+    durationMs: explicitDurationMs,
+    estimatedCost:
+      numLike(data.cost) ??
+      numLike(data.actualCost) ??
+      numLike(data.costUsd) ??
+      numLike(data.totalCost) ??
+      numLike(data.estimatedCost) ??
+      numLike(data.estimatedCostUsd),
     currency: str(data.currency) ?? "USD",
     errorCode: err,
     errorMessage: str(data.errorMessage),

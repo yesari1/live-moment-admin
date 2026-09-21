@@ -91,8 +91,7 @@ export function formatCurrency(
 
 export function formatCost(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
-  const digits = Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
-  return formatCurrency(value, "USD", digits);
+  return formatCurrency(value, "USD", 6);
 }
 
 export function formatPercent(value: number | null | undefined): string {
@@ -104,7 +103,10 @@ export function formatDurationMs(ms: number | null | undefined): string {
   if (ms == null || Number.isNaN(ms)) return "—";
   if (ms < 1000) return `${ms} ms`;
   const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)} s`;
+  if (seconds < 60) {
+    const text = Number.isInteger(seconds) ? `${seconds}` : seconds.toFixed(1);
+    return `${text} s`;
+  }
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60);
   return `${minutes}m ${rest}s`;
