@@ -144,11 +144,20 @@ export function mapGeneration(id: string, data: RawDoc): GenerationRecord {
   const actualProvider =
     str(data.actualProvider) ?? str(data.provider);
   const err = str(data.errorCode);
+  const rawStatus = (data.status as RawJobStatus) ?? "queued";
+  const status = normalizeStatus(rawStatus);
+  const isTerminal =
+    status === "completed" || status === "failed" || status === "cancelled";
   const createdAt = toDate(
     (data.createdAt ?? data.created_at ?? data.createdAtEpochMs) as never,
   );
+  // Backend jobs have no `completedAt`; the final `updatedAtEpochMs` written when
+  // the job reaches a terminal state is the completion time.
   const completedAt = toDate(
-    (data.completedAt ?? data.completed_at ?? data.completedAtEpochMs) as never,
+    (data.completedAt ??
+      data.completed_at ??
+      data.completedAtEpochMs ??
+      (isTerminal ? data.updatedAtEpochMs : undefined)) as never,
   );
   const explicitDurationMs = numLike(data.durationMs) ?? numLike(data.outputDurationMs);
   return {
@@ -157,8 +166,8 @@ export function mapGeneration(id: string, data: RawDoc): GenerationRecord {
     userEmail: str(data.userEmail),
     type,
     routingContext: (data.routingContext as GenerationRecord["routingContext"]) ?? null,
-    status: normalizeStatus(data.status),
-    rawStatus: (data.status as RawJobStatus) ?? "queued",
+    status,
+    rawStatus,
     provider: str(data.provider),
     actualProvider,
     model: str(modelId),
@@ -179,13 +188,7 @@ export function mapGeneration(id: string, data: RawDoc): GenerationRecord {
     ),
     completedAt,
     durationMs: explicitDurationMs,
-    estimatedCost:
-      numLike(data.cost) ??
-      numLike(data.actualCost) ??
-      numLike(data.costUsd) ??
-      numLike(data.totalCost) ??
-      numLike(data.estimatedCost) ??
-      numLike(data.estimatedCostUsd),
+    estimatedCost: numLike(data.estimatedCost) ?? numLike(data.estimatedCostUsd),
     currency: str(data.currency) ?? "USD",
     errorCode: err,
     errorMessage: str(data.errorMessage),

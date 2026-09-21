@@ -245,6 +245,32 @@ export async function fetchUsage(): Promise<UsageEvent[]> {
   return live(() => fetchUsageFromFirestore(), "Usage events");
 }
 
+/**
+ * Generations enriched with the real recorded cost. `generationJobs` documents
+ * carry no cost, so the backend's `generationUsageEvents` (`estimatedCostUsd`,
+ * keyed by `jobId`) is the source of truth. A job may emit more than one usage
+ * event (keyframe image + video), so the costs are summed per job.
+ */
+export async function fetchGenerationsWithCost(): Promise<GenerationRecord[]> {
+  const [generations, usage] = await Promise.all([
+    fetchGenerations(),
+    fetchUsage(),
+  ]);
+  const costByJob = new Map<string, number>();
+  for (const event of usage) {
+    if (event.estimatedCostUsd == null) continue;
+    costByJob.set(
+      event.jobId,
+      (costByJob.get(event.jobId) ?? 0) + event.estimatedCostUsd,
+    );
+  }
+  return generations.map((generation) => ({
+    ...generation,
+    estimatedCost:
+      generation.estimatedCost ?? costByJob.get(generation.id) ?? null,
+  }));
+}
+
 /* --------------------------------------------------------------- templates */
 
 export async function fetchTemplates(): Promise<TemplateRecord[]> {

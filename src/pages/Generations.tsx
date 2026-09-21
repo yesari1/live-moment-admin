@@ -33,7 +33,7 @@ import {
 } from "@/components/shared/status-badge";
 import { DateRangeFilter, resolveDateRange } from "@/components/shared/date-range-filter";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { fetchGenerations } from "@/services/data-service";
+import { fetchGenerationsWithCost } from "@/services/data-service";
 import {
   formatCost,
   formatDateTime,
@@ -58,7 +58,7 @@ function completionMs(generation: GenerationRecord): number | null {
 }
 
 export function GenerationsPage() {
-  const query = useAsyncData(fetchGenerations);
+  const query = useAsyncData(fetchGenerationsWithCost);
   const [typeFilter, setTypeFilter] = React.useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
   const [providerFilter, setProviderFilter] = React.useState("all");
@@ -169,7 +169,8 @@ export function GenerationsPage() {
       },
       {
         id: "completionTime",
-        header: "Complete time",
+        accessorFn: (row) => completionMs(row),
+        header: "Complete Time",
         cell: ({ row }) => (
           <span className="tabular-nums text-sm">
             {formatDurationMs(completionMs(row.original))}
