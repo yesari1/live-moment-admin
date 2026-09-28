@@ -283,20 +283,34 @@ function buildProviderCatalog(
     );
 }
 
+export type ModelCatalogSource = "firestore" | "builtin";
+
+export interface ModelCatalogResult {
+  providers: ProviderInfo[];
+  source: ModelCatalogSource;
+}
+
 /**
  * The model catalog shown throughout the console. In live mode this is the
  * `ai_models` collection, so a model registered by the backend (for example a
  * new Higgsfield model) is selectable as soon as the page is reloaded.
- * Falls back to the built-in catalog when Firestore is unavailable.
+ *
+ * Falls back to the built-in catalog when Firestore is unavailable, and says
+ * so: a silent fallback looks identical to "the backend registered no models",
+ * which is almost always a missing Firestore rule.
  */
-export async function fetchModelCatalog(): Promise<ProviderInfo[]> {
-  if (!isLiveData) return delay(clone(BUILTIN_PROVIDERS));
+export async function fetchModelCatalog(): Promise<ModelCatalogResult> {
+  if (!isLiveData) {
+    return { providers: await delay(clone(BUILTIN_PROVIDERS)), source: "builtin" };
+  }
   const [models, rates] = await Promise.all([
     fetchAiModelsFromFirestore(),
     fetchModelRatesFromFirestore(),
   ]);
-  if (!models || models.length === 0) return clone(BUILTIN_PROVIDERS);
-  return buildProviderCatalog(models, rates ?? {});
+  if (!models || models.length === 0) {
+    return { providers: clone(BUILTIN_PROVIDERS), source: "builtin" };
+  }
+  return { providers: buildProviderCatalog(models, rates ?? {}), source: "firestore" };
 }
 
 /* ------------------------------------------------------------ generations */

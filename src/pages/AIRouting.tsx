@@ -1,6 +1,6 @@
 import * as React from "react";
 import { toast } from "sonner";
-import { Info } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHeader } from "@/components/shared/page-header";
@@ -11,7 +11,7 @@ import { ConfirmActionDialog } from "@/components/shared/confirm-action-dialog";
 import { RoutingTierCard } from "@/components/shared/routing-card";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAuth } from "@/hooks/use-auth";
-import { fetchAllRouting, saveRouting } from "@/services/data-service";
+import { fetchAllRouting, saveRouting, isLiveData } from "@/services/data-service";
 import { useModelCatalog } from "@/hooks/use-model-catalog";
 import { ROUTING_TIERS, type RoutingTierId } from "@/data/routing";
 import {
@@ -100,6 +100,20 @@ export function AIRoutingPage() {
           changed.
         </AlertDescription>
       </Alert>
+
+      {catalog.source === "builtin" && isLiveData && (
+        <Alert variant="warning">
+          <TriangleAlert className="h-4 w-4" />
+          <AlertTitle>Model list unavailable</AlertTitle>
+          <AlertDescription>
+            The <span className="font-mono">ai_models</span> collection could
+            not be read, so the built-in offline catalog is being shown instead.
+            Models added by the backend will be missing. Check that the admin
+            Firestore security rules are deployed and that{" "}
+            <span className="font-mono">ai_models</span> is readable by admins.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {query.error ? (
         <ErrorState message={query.error} onRetry={query.refresh} />

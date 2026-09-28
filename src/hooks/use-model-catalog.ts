@@ -1,9 +1,12 @@
 import * as React from "react";
 
 import { useAsyncData, type AsyncState } from "@/hooks/use-async-data";
-import { fetchModelCatalog } from "@/services/data-service";
+import {
+  fetchModelCatalog,
+  type ModelCatalogResult,
+  type ModelCatalogSource,
+} from "@/services/data-service";
 import { setProviderCatalog, subscribeProviderCatalog } from "@/data/providers";
-import type { ProviderInfo } from "@/types";
 
 /**
  * Re-render whenever the model catalog is replaced, so model pickers and
@@ -25,15 +28,20 @@ export function useProviderCatalogVersion(): number {
  * model there (for example a Higgsfield image model) makes it selectable under
  * AI Routing after a page reload, with no rebuild of this console.
  */
-export function useModelCatalog(): AsyncState<ProviderInfo[]> & {
-  catalog: ProviderInfo[];
+export function useModelCatalog(): AsyncState<ModelCatalogResult> & {
+  catalog: ModelCatalogResult["providers"];
+  source: ModelCatalogSource | null;
 } {
   const query = useAsyncData(fetchModelCatalog, []);
   useProviderCatalogVersion();
 
   React.useEffect(() => {
-    if (query.data) setProviderCatalog(query.data);
+    if (query.data) setProviderCatalog(query.data.providers);
   }, [query.data]);
 
-  return { ...query, catalog: query.data ?? [] };
+  return {
+    ...query,
+    catalog: query.data?.providers ?? [],
+    source: query.data?.source ?? null,
+  };
 }
