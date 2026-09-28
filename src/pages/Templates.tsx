@@ -62,6 +62,7 @@ import { PanelSkeleton } from "@/components/shared/loading-skeletons";
 import { ConfirmActionDialog } from "@/components/shared/confirm-action-dialog";
 import { MediaTypeBadge } from "@/components/shared/status-badge";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useModelCatalog } from "@/hooks/use-model-catalog";
 import { useAuth } from "@/hooks/use-auth";
 import {
   deleteTemplate,
@@ -124,6 +125,7 @@ const emptyTemplate: TemplateRecord = {
 
 export function TemplatesPage() {
   const { user: actor } = useAuth();
+  useModelCatalog();
   const query = useAsyncData(fetchTemplates);
   const [editing, setEditing] = React.useState<TemplateRecord | null>(null);
   const [creating, setCreating] = React.useState(false);

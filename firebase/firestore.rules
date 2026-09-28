@@ -91,11 +91,26 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Feedback submitted from the app's "Send feedback" screen. Written only by
+    // the backend; admins read it here.
+    match /feedback/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // ------------------------------------------------------- remote control
     // AI routing, plans, app settings and templates are admin-owned config.
     match /ai_routing/{id} {
       allow read: if isAdmin();
       allow write: if isAdmin();
+    }
+
+    // Backend-owned model catalog. Server-managed: the console reads it so a
+    // model registered by the backend becomes selectable under AI Routing
+    // without a redeploy, but never writes it.
+    match /ai_models/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     match /plans/{id} {

@@ -14,6 +14,7 @@ import { AIRoutingPage } from "@/pages/AIRouting";
 import { PlansPage } from "@/pages/Plans";
 import { TemplatesPage } from "@/pages/Templates";
 import { AppSettingsPage } from "@/pages/AppSettings";
+import { FeedbackPage } from "@/pages/Feedback";
 import { LogsPage } from "@/pages/Logs";
 import { NotFoundPage } from "@/pages/NotFound";
 
@@ -46,6 +47,7 @@ function AppRoutes() {
         <Route path="/plans" element={<PlansPage />} />
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/app-settings" element={<AppSettingsPage />} />
+        <Route path="/feedback" element={<FeedbackPage />} />
         <Route path="/logs" element={<LogsPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

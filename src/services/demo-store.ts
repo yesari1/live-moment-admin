@@ -2,6 +2,7 @@ import type {
   AppSettings,
   AuditLog,
   ErrorLog,
+  FeedbackRecord,
   GenerationRecord,
   PlanConfig,
   RoutingConfig,
@@ -11,6 +12,7 @@ import {
   demoAppSettings,
   demoAuditLogs,
   demoErrorLogs,
+  demoFeedback,
   demoGenerations,
   demoPlans,
   demoRoutingConfigs,
@@ -34,6 +36,7 @@ export interface DemoState {
   settings: AppSettings;
   errorLogs: ErrorLog[];
   auditLogs: AuditLog[];
+  feedback: FeedbackRecord[];
 }
 
 export const demoState = {
@@ -46,6 +49,7 @@ export const demoState = {
   settings: clone(demoAppSettings),
   errorLogs: clone(demoErrorLogs),
   auditLogs: clone(demoAuditLogs),
+  feedback: clone(demoFeedback),
 };
 
 export function delay<T>(value: T, ms = 350): Promise<T> {

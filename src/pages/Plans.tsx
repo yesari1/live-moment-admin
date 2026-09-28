@@ -34,7 +34,7 @@ import { ConfirmActionDialog } from "@/components/shared/confirm-action-dialog";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchPlans, savePlan } from "@/services/data-service";
-import { PLAN_LABELS, PLAN_ORDER } from "@/data/plans";
+import { PLAN_LABELS, PLAN_TAB_ORDER } from "@/data/plans";
 import { IMAGE_QUALITIES, VIDEO_RESOLUTIONS } from "@/data/routing";
 import type { PlanConfig, PlanId } from "@/types";
 
@@ -43,6 +43,7 @@ const schema = z.object({
   enabled: z.boolean(),
   imageGenerations: z.coerce.number().int().min(0, "Cannot be negative."),
   videoGenerations: z.coerce.number().int().min(0, "Cannot be negative."),
+  regenerationsPerCycle: z.coerce.number().int().min(0, "Cannot be negative."),
   maxImageQuality: z.enum(["standard", "high"]),
   maxVideoResolution: z.enum(["720p", "1080p"]),
   maxVideoDurationSeconds: z.coerce.number().int().min(0, "Cannot be negative."),
@@ -61,6 +62,7 @@ function toFormValues(plan: PlanConfig): FormValues {
     enabled: plan.enabled,
     imageGenerations: plan.imageGenerations,
     videoGenerations: plan.videoGenerations,
+    regenerationsPerCycle: plan.regenerationsPerCycle,
     maxImageQuality: plan.maxImageQuality,
     maxVideoResolution: plan.maxVideoResolution,
     maxVideoDurationSeconds: plan.maxVideoDurationSeconds,
@@ -75,13 +77,13 @@ function toFormValues(plan: PlanConfig): FormValues {
 export function PlansPage() {
   const { user: actor } = useAuth();
   const query = useAsyncData(fetchPlans);
-  const [active, setActive] = React.useState<PlanId>("free");
+  const [active, setActive] = React.useState<PlanId>(PLAN_TAB_ORDER[0]);
   const [pendingSave, setPendingSave] = React.useState<
     ((value: boolean) => void) | null
   >(null);
 
   const plans = query.data ?? [];
-  const activePlan = plans.find((p) => p.id === active);
+  const activePlan = plans.find((p) => p.id === active) ?? plans[0];
 
   if (query.error) {
     return (
@@ -107,14 +109,14 @@ export function PlansPage() {
       ) : (
         <Tabs value={active} onValueChange={(value) => setActive(value as PlanId)}>
           <TabsList className="flex-wrap">
-            {PLAN_ORDER.map((plan) => (
+            {PLAN_TAB_ORDER.map((plan) => (
               <TabsTrigger key={plan} value={plan}>
                 {PLAN_LABELS[plan]}
               </TabsTrigger>
             ))}
           </TabsList>
           {activePlan && (
-            <TabsContent value={active} className="mt-4">
+            <TabsContent value={activePlan.id} className="mt-4">
               <PlanForm
                 key={activePlan.id}
                 plan={activePlan}
@@ -258,7 +260,7 @@ function PlanForm({
 
             <Separator />
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-4">
               <FormField
                 control={form.control}
                 name="imageGenerations"
@@ -281,6 +283,22 @@ function PlanForm({
                     <FormControl>
                       <Input type="number" min={0} {...field} />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="regenerationsPerCycle"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Max regeneration</FormLabel>
+                    <FormControl>
+                      <Input type="number" min={0} {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Re-generations allowed per cycle.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

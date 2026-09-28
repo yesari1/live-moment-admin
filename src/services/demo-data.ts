@@ -5,6 +5,7 @@ import type {
   AuditLog,
   DashboardMetrics,
   ErrorLog,
+  FeedbackRecord,
   GenerationRecord,
   GenerationStatus,
   LogCategory,
@@ -432,6 +433,34 @@ export const demoAuditLogs: AuditLog[] = Array.from({ length: 40 }, (_, i) => {
     createdAt: iso(int(0, 60) * DAY_MS + int(0, DAY_MS)),
   };
 }).sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+
+/* -------------------------------------------------------------- feedback */
+
+const FEEDBACK_SAMPLES: string[] = [
+  "The video looks great but the weather is not matching the forecast for tomorrow. Can you fix that?",
+  "Payment succeeded in Google Play but the app still shows Free. Please check my account.",
+  "Regeneration button does nothing on the third try. I have LiveWeather Plus.",
+  "Love the new rain template. The loop jumps once at the end.",
+  "How do I get my wallpaper back after reinstalling the app?",
+  "The generated image is blurry on my phone but fine on my tablet.",
+  "I bought the single wallpaper pack and it only let me generate one image.",
+  "Please add a night variant for the city template.",
+];
+
+export const demoFeedback: FeedbackRecord[] = Array.from({ length: 42 }, (_, i) => {
+  const user = demoUsers[int(0, demoUsers.length - 1)];
+  return {
+    id: `feedback_${i}`,
+    uid: user.uid,
+    email: user.email,
+    plan: user.plan,
+    standaloneWallpapersGranted: user.credits,
+    message: pick(FEEDBACK_SAMPLES),
+    createdAt: iso(int(0, 45) * DAY_MS + int(0, DAY_MS)),
+  };
+}).sort(
+  (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0),
+);
 
 /* ------------------------------------------------------------- analytics */
 

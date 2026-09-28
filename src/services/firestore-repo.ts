@@ -37,7 +37,12 @@ import type {
 import { isRecord, mapTemplateVersion } from "@/lib/template-version";
 import { defaultRoutingConfig, routingDocId } from "@/data/routing";
 import { DEFAULT_PLANS } from "@/data/plans";
-import type { GenerationType, RoutingContext } from "@/types";
+import type {
+  FeedbackRecord,
+  GenerationType,
+  ModelInfo,
+  RoutingContext,
+} from "@/types";
 
 /* ------------------------------------------------------------- collections */
 
@@ -48,10 +53,12 @@ export const COLLECTIONS = {
   templates: "motionTemplates",
   billingPurchases: "billingPurchases",
   routing: "ai_routing",
+  models: "ai_models",
   plans: "plans",
   appSettings: "admin_config",
   auditLogs: "admin_audit_logs",
   errorLogs: "admin_error_logs",
+  feedback: "feedback",
   pricing: "pricingConfigs",
 } as const;
 
@@ -217,8 +224,72 @@ export function mapUsageEvent(id: string, data: RawDoc) {
   };
 }
 
-export function mapTemplate(id: string, data: RawDoc): TemplateRecord {
+/**
+ * A model published by the backend in `ai_models/{modelId}`.
+ *
+ * The document id is the model id used everywhere else (AI Routing, jobs,
+ * usage events). `stage` is the canonical media type; `type` is the legacy
+ * alias. Unknown providers are kept so a newly added provider still shows up.
+ */
+export function mapAiModel(id: string, data: RawDoc): ModelInfo | null {
+  const modelId = str(data.id) ?? id;
+  const provider = str(data.provider);
+  const stage = str(data.stage) ?? str(data.type);
+  if (!modelId || !provider) return null;
+  if (stage !== "image" && stage !== "video") return null;
+  const raw = (data.capabilities ?? {}) as RawDoc;
+  const durations = Array.isArray(raw.supportedDurationsSeconds)
+    ? (raw.supportedDurationsSeconds as unknown[])
+        .map((value) => numLike(value))
+        .filter((value): value is number => value !== null)
+    : [];
   return {
+    id: modelId,
+    provider,
+    type: stage,
+    displayName: str(data.displayName) ?? modelId,
+    enabled: data.enabled !== false,
+    estimatedCost: null,
+    estimatedCostPerSecond: null,
+    supportsFallback: true,
+    supportsReference: modelId.endsWith("_reference"),
+    recommended: modelId.endsWith("_reference") ? false : undefined,
+    free: modelId.includes("free"),
+    capabilities: {
+      imageInput: raw.imageInput !== false,
+      supportedAspectRatios: Array.isArray(raw.supportedAspectRatios)
+        ? (raw.supportedAspectRatios as unknown[]).map(String)
+        : [],
+      supportedResolutions: Array.isArray(raw.supportedResolutions)
+        ? (raw.supportedResolutions as unknown[]).map(String)
+        : [],
+      supportedDurationsSeconds: durations,
+    },
+    updatedAt: toDate(data.updatedAt as never),
+  };
+}
+
+/** Per-model prices published by the backend in `pricingConfigs/current`. */
+export interface ModelRate {
+  stage: "image" | "video" | null;
+  flatUsd: number | null;
+  usdPerSecond: number | null;
+  usdPerImage: number | null;
+}
+
+export function mapFeedback(id: string, data: RawDoc): FeedbackRecord {
+  return {
+    id,
+    uid: str(data.uid) ?? "",
+    email: str(data.email),
+    plan: str(data.plan),
+    standaloneWallpapersGranted: numLike(data.standaloneWallpapersGranted) ?? 0,
+    message: str(data.message) ?? "",
+    createdAt: toDate((data.createdAt ?? data.createdAtEpochMs) as never),
+  };
+}
+
+function mapTemplate(id: string, data: RawDoc): TemplateRecord {  return {
     id: str(data.id) ?? id,
     title: str(data.title) ?? id,
     description: str(data.description) ?? "",
@@ -333,6 +404,78 @@ export async function fetchUsageFromFirestore() {
     )) as ReturnType<typeof mapUsageEvent>[] | null;
   } catch (error) {
     console.warn("[admin] Failed to read generationUsageEvents", error);
+    return null;
+  }
+}
+
+/**
+ * Read the backend-owned model catalog. This is what makes a model added to
+ * `ai_models` selectable under AI Routing on the next page load, with no
+ * redeploy of this console.
+ */
+export async function fetchAiModelsFromFirestore(): Promise<
+  ModelInfo[] | null
+> {
+  try {
+    const models = (await readCollection(COLLECTIONS.models, mapAiModel, 1000)) as
+      | (ModelInfo | null)[]
+      | null;
+    if (!models) return null;
+    return models.filter((model): model is ModelInfo => model !== null);
+  } catch (error) {
+    console.warn("[admin] Failed to read ai_models", error);
+    return null;
+  }
+}
+
+/**
+ * Read `pricingConfigs/current` so each model can be shown with the price the
+ * backend actually bills. Both shapes are honoured: a flat per-request price
+ * (`flatUsd`/`usdPerImage`) and a per-second price (`usdPerSecond`).
+ */
+export async function fetchModelRatesFromFirestore(): Promise<
+  Record<string, ModelRate> | null
+> {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.pricing, "current"));
+    if (!snap.exists()) return {};
+    const rates = (snap.data() as RawDoc).modelRates;
+    if (!isRecord(rates)) return {};
+    const parsed: Record<string, ModelRate> = {};
+    for (const [modelId, value] of Object.entries(rates)) {
+      if (!isRecord(value)) continue;
+      const stage = str(value.stage);
+      parsed[modelId] = {
+        stage: stage === "image" || stage === "video" ? stage : null,
+        flatUsd: numLike(value.flatUsd),
+        usdPerSecond: numLike(value.usdPerSecond),
+        usdPerImage: numLike(value.usdPerImage),
+      };
+    }
+    return parsed;
+  } catch (error) {
+    console.warn("[admin] Failed to read pricingConfigs/current", error);
+    return null;
+  }
+}
+
+export async function fetchFeedbackFromFirestore(
+  max = 500,
+): Promise<FeedbackRecord[] | null> {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const q = query(
+      collection(db, COLLECTIONS.feedback),
+      orderBy("createdAt", "desc"),
+      limit(max),
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((d) => mapFeedback(d.id, d.data() as RawDoc));
+  } catch (error) {
+    console.warn("[admin] Failed to read feedback", error);
     return null;
   }
 }
@@ -512,7 +655,17 @@ export async function fetchPlansFromFirestore(): Promise<PlanConfig[] | null> {
       const data = d.data() as RawDoc;
       const base =
         DEFAULT_PLANS.find((p) => p.id === d.id) ?? DEFAULT_PLANS[0];
-      return { ...base, ...data, id: d.id } as PlanConfig;
+      // The backend prefers the `*PerCycle` names; older documents may still
+      // carry only the legacy aliases, so accept either.
+      const regenerations =
+        numLike(data.regenerationsPerCycle) ??
+        numLike(data.replacementGenerationsPerCycle);
+      return {
+        ...base,
+        ...data,
+        id: d.id,
+        ...(regenerations !== null ? { regenerationsPerCycle: regenerations } : {}),
+      } as PlanConfig;
     });
     // Preserve canonical ordering, appending any extra plans.
     return DEFAULT_PLANS.map(
@@ -650,9 +803,21 @@ export async function savePlanToFirestore(
   const db = getDb();
   if (!db) return false;
   try {
+    // The backend reads the `*PerCycle` names and only falls back to the legacy
+    // aliases, so both are written in sync: editing a plan in this console must
+    // never be shadowed by a stale per-cycle value.
     await setDoc(
       doc(db, COLLECTIONS.plans, plan.id),
-      { ...plan, updatedAt: serverTimestamp(), updatedBy: adminUid },
+      {
+        ...plan,
+        routingScope: plan.id,
+        imageGenerationsPerCycle: plan.imageGenerations,
+        videoGenerationsPerCycle: plan.videoGenerations,
+        regenerationsPerCycle: plan.regenerationsPerCycle,
+        replacementGenerationsPerCycle: plan.regenerationsPerCycle,
+        updatedAt: serverTimestamp(),
+        updatedBy: adminUid,
+      },
       { merge: true },
     );
     return true;

@@ -94,6 +94,15 @@ export function formatCost(value: number | null | undefined): string {
   return formatCurrency(value, "USD", 6);
 }
 
+/**
+ * Compact USD price for dense UI such as model pickers: enough decimals to
+ * distinguish provider rates without the trailing zeros of `formatCost`.
+ */
+export function formatUnitPrice(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `$${Number(value.toFixed(4))}`;
+}
+
 export function formatPercent(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
   return `${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;

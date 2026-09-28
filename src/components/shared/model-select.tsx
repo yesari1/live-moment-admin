@@ -13,7 +13,9 @@ import {
   getProviderDisplayName,
   getProviders,
 } from "@/data/providers";
-import type { GenerationType } from "@/types";
+import { useProviderCatalogVersion } from "@/hooks/use-model-catalog";
+import { formatUnitPrice } from "@/lib/format";
+import type { GenerationType, ModelInfo } from "@/types";
 
 interface ModelSelectProps {
   type: GenerationType;
@@ -26,6 +28,21 @@ interface ModelSelectProps {
   includeDisabled?: boolean;
 }
 
+/**
+ * Price exactly as the backend bills it. A per-second rate is labelled as such
+ * and is never rendered as a per-request price, which would read as several
+ * times the real cost on a multi-second video.
+ */
+function modelPriceLabel(model: ModelInfo): string {
+  if (model.free) return "free";
+  if (model.estimatedCost === 0) return "free";
+  if (model.estimatedCost != null) return formatUnitPrice(model.estimatedCost);
+  if (model.estimatedCostPerSecond != null) {
+    return `${formatUnitPrice(model.estimatedCostPerSecond)}/s`;
+  }
+  return "";
+}
+
 export function ModelSelect({
   type,
   provider,
@@ -35,6 +52,7 @@ export function ModelSelect({
   id,
   includeDisabled,
 }: ModelSelectProps) {
+  useProviderCatalogVersion();
   const providers = getProviders(type).filter(
     (p) => !provider || p.id === provider,
   );
@@ -54,17 +72,22 @@ export function ModelSelect({
       <SelectTrigger id={id} aria-label="Model">
         <SelectValue placeholder="Select a model" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="max-h-80">
         {groups.map((group) =>
           group.models.length ? (
             <SelectGroup key={group.provider.id}>
               <SelectLabel>{group.provider.displayName}</SelectLabel>
-              {group.models.map((model) => (
-                <SelectItem key={model.id} value={model.id}>
-                  {model.displayName}
-                  {model.recommended ? " · recommended" : ""}
-                </SelectItem>
-              ))}
+              {group.models.map((model) => {
+                const price = modelPriceLabel(model);
+                return (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.displayName}
+                    {model.recommended ? " · recommended" : ""}
+                    {price ? ` · ${price}` : ""}
+                    {model.enabled ? "" : " · disabled"}
+                  </SelectItem>
+                );
+              })}
             </SelectGroup>
           ) : null,
         )}

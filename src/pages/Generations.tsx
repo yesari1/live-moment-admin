@@ -33,6 +33,7 @@ import {
 } from "@/components/shared/status-badge";
 import { DateRangeFilter, resolveDateRange } from "@/components/shared/date-range-filter";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useModelCatalog } from "@/hooks/use-model-catalog";
 import { fetchGenerationsWithCost } from "@/services/data-service";
 import {
   formatCost,
@@ -58,6 +59,7 @@ function completionMs(generation: GenerationRecord): number | null {
 }
 
 export function GenerationsPage() {
+  useModelCatalog();
   const query = useAsyncData(fetchGenerationsWithCost);
   const [typeFilter, setTypeFilter] = React.useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
@@ -407,6 +409,45 @@ function GenerationDetailDrawer({
             <Detail label="Person type" value={generation.personType ?? "—"} />
             <Detail label="Timeout" value={generation.timeout ? "Yes" : "No"} />
           </div>
+
+          {generation.costEvents && generation.costEvents.length > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Cost breakdown
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  A job records one usage event per provider call. A video job
+                  normally has two legs: the keyframe image and the video
+                  itself. The job total is the sum of these rows.
+                </p>
+                <div className="space-y-1.5">
+                  {generation.costEvents.map((event) => (
+                    <div
+                      key={event.id}
+                      className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="flex items-center gap-1.5 text-xs">
+                          <MediaTypeBadge type={event.stage} />
+                          <span className="truncate font-medium">
+                            {getModelDisplayName(event.model)}
+                          </span>
+                        </p>
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          {getProviderDisplayName(event.provider)}
+                          {event.durationSeconds != null &&
+                            ` · ${event.durationSeconds}s`}
+                        </p>
+                      </div>
+                      <CostDisplay value={event.estimatedCostUsd} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
 
           {generation.status === "failed" && (
             <>

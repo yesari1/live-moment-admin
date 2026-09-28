@@ -32,6 +32,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { SeverityBadge } from "@/components/shared/status-badge";
 import { DateRangeFilter, resolveDateRange } from "@/components/shared/date-range-filter";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useModelCatalog } from "@/hooks/use-model-catalog";
 import { fetchAuditLogs, fetchErrorLogs } from "@/services/data-service";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import {
@@ -59,6 +60,7 @@ const CATEGORY_LABELS: Record<LogCategory, string> = {
 };
 
 export function LogsPage() {
+  useModelCatalog();
   const errors = useAsyncData(fetchErrorLogs);
   const audit = useAsyncData(fetchAuditLogs);
 

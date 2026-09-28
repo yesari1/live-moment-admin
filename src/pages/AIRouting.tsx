@@ -12,6 +12,7 @@ import { RoutingTierCard } from "@/components/shared/routing-card";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchAllRouting, saveRouting } from "@/services/data-service";
+import { useModelCatalog } from "@/hooks/use-model-catalog";
 import { ROUTING_TIERS, type RoutingTierId } from "@/data/routing";
 import {
   getModelDisplayName,
@@ -27,6 +28,9 @@ export function AIRoutingPage() {
   );
   const resolveRef = React.useRef<((value: boolean) => void) | null>(null);
 
+  // Publishes the backend-owned `ai_models` catalog so every model picker on
+  // this page offers the models Firestore currently holds.
+  const catalog = useModelCatalog();
   const query = useAsyncData(() => fetchAllRouting(), []);
   const configs = query.data ?? [];
   const activeTierMeta =
@@ -86,7 +90,10 @@ export function AIRoutingPage() {
         <AlertTitle>How routing works</AlertTitle>
         <AlertDescription>
           Pick a plan tab, then open its Image or Video tab to set the primary
-          model, an optional fallback, retries and a timeout. Saving
+          model, an optional fallback, retries and a timeout. The model list is
+          read from the backend's <span className="font-mono">ai_models</span>{" "}
+          collection on every page load, so a model added there — a new
+          Higgsfield model, for example — is selectable straight away. Saving
           writes the configuration to Firebase; the backend reads it for every
           new request, picks the model, falls back or retries when needed, and
           records what was actually used. Already-running jobs are never
@@ -96,7 +103,7 @@ export function AIRoutingPage() {
 
       {query.error ? (
         <ErrorState message={query.error} onRetry={query.refresh} />
-      ) : query.loading ? (
+      ) : query.loading || (catalog.loading && !catalog.data) ? (
         <PanelSkeleton rows={4} />
       ) : (
         <Tabs

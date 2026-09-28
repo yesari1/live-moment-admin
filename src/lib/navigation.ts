@@ -3,6 +3,7 @@ import {
   FileText,
   LayoutDashboard,
   Layers,
+  MessageSquare,
   Route,
   Settings2,
   Users,
@@ -59,6 +60,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "App Settings",
     icon: Settings2,
     description: "Global remote controls and emergency kill switches.",
+  },
+  {
+    to: "/feedback",
+    label: "Feedback",
+    icon: MessageSquare,
+    description: "Messages users send from the app.",
   },
   {
     to: "/logs",

@@ -41,6 +41,7 @@ import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { GenerationStatusBadge } from "@/components/shared/status-badge";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useModelCatalog } from "@/hooks/use-model-catalog";
 import {
   fetchAuditLogs,
   fetchGenerations,
@@ -96,6 +97,7 @@ const PIE_COLORS = [
 ];
 
 export function DashboardPage() {
+  useModelCatalog();
   const [range, setRange] = React.useState<DateRange>({
     preset: "30d",
     from: null,

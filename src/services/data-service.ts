@@ -3,8 +3,11 @@ import type {
   AppSettings,
   AuditLog,
   ErrorLog,
+  FeedbackRecord,
   GenerationRecord,
+  ModelInfo,
   PlanConfig,
+  ProviderInfo,
   RoutingConfig,
   TemplateRecord,
   TemplateVersionRecord,
@@ -13,13 +16,17 @@ import type {
 import { isFirebaseConfigured, runtimeConfig } from "@/lib/config";
 import { IMAGE_CONTEXTS, VIDEO_CONTEXTS } from "@/data/routing";
 import { DEFAULT_PLANS } from "@/data/plans";
+import { BUILTIN_PROVIDERS, providerDisplayName } from "@/data/providers";
 import {
   appendAuditLogToFirestore,
   deleteTemplateFromFirestore,
+  fetchAiModelsFromFirestore,
   fetchAppSettingsFromFirestore,
   fetchAuditLogsFromFirestore,
   fetchErrorLogsFromFirestore,
+  fetchFeedbackFromFirestore,
   fetchGenerationsFromFirestore,
+  fetchModelRatesFromFirestore,
   fetchPlansFromFirestore,
   fetchRoutingFromFirestore,
   fetchTemplateVersionsFromFirestore,
@@ -233,6 +240,65 @@ export async function deleteUser(
   });
 }
 
+/* ------------------------------------------------------- model catalog */
+
+/**
+ * Build the provider/model catalog from the backend-owned `ai_models`
+ * collection, enriched with the prices the backend bills from
+ * `pricingConfigs/current`.
+ *
+ * A flat price is a whole-request price; a per-second price must never be
+ * shown as a per-request one, otherwise a 6 s video reads as six times its
+ * real price.
+ */
+function buildProviderCatalog(
+  models: ModelInfo[],
+  rates: Record<string, { flatUsd: number | null; usdPerSecond: number | null; usdPerImage: number | null }>,
+): ProviderInfo[] {
+  const byProvider = new Map<string, ModelInfo[]>();
+  for (const model of models) {
+    const rate = rates[model.id];
+    const flat = rate?.flatUsd ?? rate?.usdPerImage ?? null;
+    const enriched: ModelInfo = {
+      ...model,
+      estimatedCost: flat,
+      estimatedCostPerSecond:
+        flat !== null ? null : (rate?.usdPerSecond ?? null),
+    };
+    const list = byProvider.get(model.provider) ?? [];
+    list.push(enriched);
+    byProvider.set(model.provider, list);
+  }
+  return [...byProvider.entries()]
+    .map(([providerId, providerModels]) => ({
+      id: providerId,
+      displayName: providerDisplayName(providerId),
+      enabled: providerModels.some((model) => model.enabled),
+      description: "",
+      imageModels: providerModels.filter((model) => model.type === "image"),
+      videoModels: providerModels.filter((model) => model.type === "video"),
+    }))
+    .filter(
+      (provider) => provider.imageModels.length > 0 || provider.videoModels.length > 0,
+    );
+}
+
+/**
+ * The model catalog shown throughout the console. In live mode this is the
+ * `ai_models` collection, so a model registered by the backend (for example a
+ * new Higgsfield model) is selectable as soon as the page is reloaded.
+ * Falls back to the built-in catalog when Firestore is unavailable.
+ */
+export async function fetchModelCatalog(): Promise<ProviderInfo[]> {
+  if (!isLiveData) return delay(clone(BUILTIN_PROVIDERS));
+  const [models, rates] = await Promise.all([
+    fetchAiModelsFromFirestore(),
+    fetchModelRatesFromFirestore(),
+  ]);
+  if (!models || models.length === 0) return clone(BUILTIN_PROVIDERS);
+  return buildProviderCatalog(models, rates ?? {});
+}
+
 /* ------------------------------------------------------------ generations */
 
 export async function fetchGenerations(): Promise<GenerationRecord[]> {
@@ -249,26 +315,48 @@ export async function fetchUsage(): Promise<UsageEvent[]> {
  * Generations enriched with the real recorded cost. `generationJobs` documents
  * carry no cost, so the backend's `generationUsageEvents` (`estimatedCostUsd`,
  * keyed by `jobId`) is the source of truth. A job may emit more than one usage
- * event (keyframe image + video), so the costs are summed per job.
+ * event (keyframe image + video), so the costs are summed per job and the
+ * contributing events are kept on the record for the detail view.
  */
 export async function fetchGenerationsWithCost(): Promise<GenerationRecord[]> {
   const [generations, usage] = await Promise.all([
     fetchGenerations(),
     fetchUsage(),
   ]);
-  const costByJob = new Map<string, number>();
+  const eventsByJob = new Map<string, UsageEvent[]>();
   for (const event of usage) {
-    if (event.estimatedCostUsd == null) continue;
-    costByJob.set(
-      event.jobId,
-      (costByJob.get(event.jobId) ?? 0) + event.estimatedCostUsd,
-    );
+    const list = eventsByJob.get(event.jobId) ?? [];
+    list.push(event);
+    eventsByJob.set(event.jobId, list);
   }
-  return generations.map((generation) => ({
-    ...generation,
-    estimatedCost:
-      generation.estimatedCost ?? costByJob.get(generation.id) ?? null,
-  }));
+  return generations.map((generation) => {
+    const events = eventsByJob.get(generation.id);
+    if (!events) return generation;
+    return {
+      ...generation,
+      costEvents: events,
+      estimatedCost:
+        generation.estimatedCost ??
+        sumEventCost(events) ??
+        null,
+    };
+  });
+}
+
+/**
+ * Sum the recorded cost of every usage event belonging to one job. A video job
+ * records two legs (keyframe image + video), so the job total is the sum of
+ * both; a job whose events carry no price at all stays uncosted.
+ */
+export function sumEventCost(events: UsageEvent[]): number | null {
+  let total = 0;
+  let seen = false;
+  for (const event of events) {
+    if (event.estimatedCostUsd == null) continue;
+    total += event.estimatedCostUsd;
+    seen = true;
+  }
+  return seen ? total : null;
 }
 
 /* --------------------------------------------------------------- templates */
@@ -504,6 +592,18 @@ export async function saveAppSettings(
     after: next,
   });
   return next;
+}
+
+/* ---------------------------------------------------------------- feedback */
+
+/**
+ * Feedback submitted from the mobile app's "Send feedback" screen. Written by
+ * the backend through `POST /v1/feedback`; read-only here.
+ */
+export async function fetchFeedback(): Promise<FeedbackRecord[]> {
+  if (!isLiveData) return delay(clone(demoState.feedback));
+  const result = await fetchFeedbackFromFirestore();
+  return result ?? [];
 }
 
 /* ------------------------------------------------------------------- logs */

@@ -86,6 +86,12 @@ export interface GenerationRecord {
   durationMs: number | null;
   estimatedCost: number | null;
   currency: string;
+  /**
+   * Usage events that make up this job's recorded cost. A video job normally
+   * has two legs (the keyframe image and the video itself), so the job total is
+   * the sum of these rows.
+   */
+  costEvents?: UsageEvent[];
   errorCode: string | null;
   errorMessage: string | null;
   timeout: boolean;
@@ -176,6 +182,8 @@ export interface PlanConfig {
   enabled: boolean;
   imageGenerations: number;
   videoGenerations: number;
+  /** Re-generation (replacement) allowance per billing cycle. */
+  regenerationsPerCycle: number;
   maxImageQuality: "standard" | "high";
   maxVideoResolution: "720p" | "1080p";
   maxVideoDurationSeconds: number;
@@ -285,17 +293,30 @@ export type AuditAction =
   | "USER_PLAN_UPDATED"
   | "USER_MARKED_FOR_REVIEW";
 
+export interface ModelCapabilities {
+  imageInput: boolean;
+  supportedAspectRatios: string[];
+  supportedResolutions: string[];
+  supportedDurationsSeconds: number[];
+}
+
 export interface ModelInfo {
   id: string;
   displayName: string;
   type: GenerationType;
   provider: string;
   enabled: boolean;
+  /** Flat price for one request, in USD. */
   estimatedCost: number | null;
+  /** Price per generated second, in USD, when the provider bills by duration. */
+  estimatedCostPerSecond: number | null;
   supportsFallback: boolean;
   supportsReference?: boolean;
   recommended?: boolean;
   free?: boolean;
+  /** Capabilities published by the backend `ai_models` catalog. */
+  capabilities?: ModelCapabilities;
+  updatedAt?: Date | null;
 }
 
 export interface ProviderInfo {
@@ -305,6 +326,17 @@ export interface ProviderInfo {
   description: string;
   imageModels: ModelInfo[];
   videoModels: ModelInfo[];
+}
+
+/** A user feedback message submitted from the mobile app. */
+export interface FeedbackRecord {
+  id: string;
+  uid: string;
+  email: string | null;
+  plan: string | null;
+  standaloneWallpapersGranted: number;
+  message: string;
+  createdAt: Date | null;
 }
 
 export interface DateRange {

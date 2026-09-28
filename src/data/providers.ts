@@ -1,17 +1,26 @@
-import type { GenerationType, ModelInfo, ProviderInfo } from "@/types";
+import type {
+  GenerationType,
+  ModelInfo,
+  ProviderInfo,
+} from "@/types";
 
 /**
  * AI Provider / Model registry.
  *
- * Mirrors the model catalogs published by the Live Moment backend
- * (backend/src/domain/image-model.ts and video-model.ts) and the Firebase
- * Remote Config catalogs. No provider secrets are stored here.
+ * The live catalog is loaded from the backend-owned `ai_models` Firestore
+ * collection (plus `pricingConfigs/current` for per-model prices) so a model
+ * added there — for example a new Higgsfield model — becomes selectable under
+ * AI Routing as soon as this page is reloaded, with no redeploy.
+ *
+ * `BUILTIN_PROVIDERS` below is the offline fallback used in demo mode and
+ * whenever Firestore cannot be read. No provider secrets are stored here.
  */
 
 function titleize(id: string) {
   return id
     .replace(/^pixazo_/, "")
     .replace(/^google_/, "")
+    .replace(/^higgsfield_/, "")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .replace(/\bO(\d)\b/g, "O$1")
@@ -20,6 +29,15 @@ function titleize(id: string) {
     .replace(/\bLtx\b/g, "LTX")
     .replace(/\bVidu\b/g, "Vidu")
     .replace(/\bWan\b/g, "Wan");
+}
+
+export function providerDisplayName(providerId: string): string {
+  const known: Record<string, string> = {
+    google: "Google",
+    pixazo: "Pixazo",
+    higgsfield: "Higgsfield",
+  };
+  return known[providerId] ?? titleize(providerId);
 }
 
 function imageModel(
@@ -34,6 +52,7 @@ function imageModel(
     displayName: titleize(id),
     enabled: true,
     estimatedCost: null,
+    estimatedCostPerSecond: null,
     supportsFallback: true,
     ...opts,
   };
@@ -51,6 +70,7 @@ function videoModel(
     displayName: titleize(id),
     enabled: true,
     estimatedCost: null,
+    estimatedCostPerSecond: null,
     supportsFallback: true,
     ...opts,
   };
@@ -133,7 +153,8 @@ const pixazoVideoModels: ModelInfo[] = [
   videoModel("pixazo", "pixazo_vidu_q3_turbo", { estimatedCost: 0.13 }),
 ];
 
-export const PROVIDERS: ProviderInfo[] = [
+/** Offline fallback catalog, used in demo mode and when Firestore is unreadable. */
+export const BUILTIN_PROVIDERS: ProviderInfo[] = [
   {
     id: "google",
     displayName: "Google",
@@ -152,6 +173,33 @@ export const PROVIDERS: ProviderInfo[] = [
   },
 ];
 
+/**
+ * The active catalog. It is replaced in place (never reassigned) so that
+ * modules holding a reference at import time keep observing the current list.
+ */
+export const PROVIDERS: ProviderInfo[] = [...BUILTIN_PROVIDERS];
+
+const listeners = new Set<() => void>();
+
+/** Replace the active catalog, e.g. with the `ai_models` read from Firestore. */
+export function setProviderCatalog(providers: ProviderInfo[]) {
+  PROVIDERS.length = 0;
+  PROVIDERS.push(...providers);
+  listeners.forEach((listener) => listener());
+}
+
+/** Restore the built-in offline catalog. */
+export function resetProviderCatalog() {
+  setProviderCatalog(BUILTIN_PROVIDERS);
+}
+
+export function subscribeProviderCatalog(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 export function getProvider(providerId: string): ProviderInfo | undefined {
   return PROVIDERS.find((p) => p.id === providerId);
 }
@@ -168,7 +216,7 @@ export function getModels(
 ): ModelInfo[] {
   const provider = getProvider(providerId);
   if (!provider) return [];
-  return (type === "image" ? provider.imageModels : provider.videoModels);
+  return type === "image" ? provider.imageModels : provider.videoModels;
 }
 
 export function getModel(
@@ -196,7 +244,7 @@ export function findModel(modelId: string | null): ModelInfo | undefined {
 
 /**
  * Provider for a model id. Falls back to the previously stored provider when
- * the model is not part of the local catalog (e.g. a legacy custom id).
+ * the model is not part of the current catalog (e.g. a legacy custom id).
  */
 export function resolveModelProvider(
   modelId: string | null,

@@ -3,12 +3,23 @@ import type { PlanConfig, PlanId } from "@/types";
 export const PLAN_LABELS: Record<PlanId, string> = {
   free: "Free",
   single: "Single",
-  live_weather: "Lite",
-  live_weather_plus: "Plus",
+  live_weather: "LiveWeather",
+  live_weather_plus: "LiveWeather Plus",
 };
 
 export const PLAN_ORDER: PlanId[] = [
   "free",
+  "single",
+  "live_weather",
+  "live_weather_plus",
+];
+
+/**
+ * Tabs shown on the Plans page. The `free` plan is an onboarding preview that
+ * the backend seeds and never sells, so it is configured in Firestore but is
+ * not part of the sold-plan tabs.
+ */
+export const PLAN_TAB_ORDER: PlanId[] = [
   "single",
   "live_weather",
   "live_weather_plus",
@@ -21,6 +32,7 @@ export const DEFAULT_PLANS: PlanConfig[] = [
     enabled: true,
     imageGenerations: 1,
     videoGenerations: 0,
+    regenerationsPerCycle: 0,
     maxImageQuality: "standard",
     maxVideoResolution: "720p",
     maxVideoDurationSeconds: 0,
@@ -37,6 +49,7 @@ export const DEFAULT_PLANS: PlanConfig[] = [
     enabled: true,
     imageGenerations: 1,
     videoGenerations: 1,
+    regenerationsPerCycle: 0,
     maxImageQuality: "high",
     maxVideoResolution: "720p",
     maxVideoDurationSeconds: 6,
@@ -49,10 +62,11 @@ export const DEFAULT_PLANS: PlanConfig[] = [
   },
   {
     id: "live_weather",
-    displayName: "Lite",
+    displayName: "LiveWeather",
     enabled: true,
     imageGenerations: 4,
-    videoGenerations: 2,
+    videoGenerations: 4,
+    regenerationsPerCycle: 1,
     maxImageQuality: "high",
     maxVideoResolution: "1080p",
     maxVideoDurationSeconds: 6,
@@ -61,14 +75,15 @@ export const DEFAULT_PLANS: PlanConfig[] = [
     storeProductId: "live_weather_monthly",
     internalSku: "plan_live_weather",
     priceLabel: "$9.99 / mo",
-    features: ["Weather automation", "1 replacement"],
+    features: ["Weather automation"],
   },
   {
     id: "live_weather_plus",
-    displayName: "Plus",
+    displayName: "LiveWeather Plus",
     enabled: true,
-    imageGenerations: 10,
-    videoGenerations: 5,
+    imageGenerations: 8,
+    videoGenerations: 8,
+    regenerationsPerCycle: 2,
     maxImageQuality: "high",
     maxVideoResolution: "1080p",
     maxVideoDurationSeconds: 6,
@@ -77,7 +92,7 @@ export const DEFAULT_PLANS: PlanConfig[] = [
     storeProductId: "live_weather_plus_monthly",
     internalSku: "plan_live_weather_plus",
     priceLabel: "$14.99 / mo",
-    features: ["Weather automation", "2 replacements", "Day / night variants"],
+    features: ["Weather automation", "Day / night variants"],
   },
 ];
 
