@@ -60,7 +60,10 @@ function completionMs(generation: GenerationRecord): number | null {
 
 export function GenerationsPage() {
   useModelCatalog();
-  const query = useAsyncData(fetchGenerationsWithCost);
+  // Jobs stream in while an operator watches the queue, so this page keeps
+  // itself current. Polls are silent and pause on a hidden tab, so the table
+  // never flickers and an idle console costs no reads.
+  const query = useAsyncData(fetchGenerationsWithCost, [], { pollIntervalMs: 3000 });
   const [typeFilter, setTypeFilter] = React.useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
   const [providerFilter, setProviderFilter] = React.useState("all");
