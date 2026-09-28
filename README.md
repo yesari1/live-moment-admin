@@ -43,13 +43,35 @@ src/
   components/layout/    sidebar, header, admin layout
   components/shared/    StatCard, DataTable, StatusBadge, RoutingCard, …
   pages/                Dashboard, Users, Generations, AIRouting, Plans,
-                        Templates, AppSettings, Logs, Login, AccessDenied
+                        Templates, AppSettings, Feedback, Logs, Login,
+                        AccessDenied
   services/             Firestore repo, backend client, demo store, analytics
   data/                 provider/model registry, plan catalog, routing contexts
-  hooks/                auth, theme, async data
+  hooks/                auth, theme, async data, model catalog
   lib/                  firebase init, runtime config, formatting
   types/                domain types
 ```
+
+## Model catalog
+
+The provider/model registry starts from a built-in offline catalog and is
+replaced on every page load by the backend-owned Firestore documents:
+
+- `ai_models/{modelId}` — `provider`, `stage` (`image`/`video`), `enabled`,
+  `displayName`, `capabilities`
+- `pricingConfigs/current` — `modelRates.{modelId}` with `flatUsd`/`usdPerImage`
+  (whole-request price) or `usdPerSecond` (price per generated second)
+
+A model registered by the backend, a new Higgsfield model for example, is
+selectable under AI Routing after reloading the console, with no redeploy. Both
+collections are server-owned: the console reads them and never writes them.
+Firestore rules grant admins read access to both.
+
+## Firestore collections read
+
+`users`, `generationJobs`, `generationUsageEvents`, `motionTemplates`,
+`ai_routing`, `ai_models`, `plans`, `pricingConfigs`, `feedback`,
+`admin_config`, `admin_audit_logs`, `admin_error_logs`.
 
 ## Security
 
