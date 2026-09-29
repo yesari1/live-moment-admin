@@ -7,6 +7,7 @@ import type {
   GenerationType,
   LogSeverity,
 } from "@/types";
+import type { TestAccountKind } from "@/lib/test-accounts";
 import { PLAN_LABELS } from "@/data/plans";
 import {
   AlertTriangle,
@@ -118,6 +119,47 @@ export function PlanBadge({
   return (
     <Badge variant={variant} className={className}>
       {PLAN_LABELS[plan] ?? plan}
+    </Badge>
+  );
+}
+
+const testAccountStyles: Record<
+  Exclude<TestAccountKind, "real">,
+  { variant: "warning" | "muted"; label: string; title: string }
+> = {
+  device: {
+    variant: "warning",
+    label: "Test device",
+    title:
+      "Reported by the app as a Firebase Test Lab device (Play pre-launch robot)",
+  },
+  suspected: {
+    variant: "muted",
+    label: "Likely test",
+    title: "Guessed from the email pattern, may be wrong",
+  },
+};
+
+/**
+ * Label for a Test Lab / pre-launch robot account. Renders nothing for a real
+ * user, so callers can drop it in unconditionally.
+ */
+export function TestAccountBadge({
+  kind,
+  className,
+}: {
+  kind: TestAccountKind;
+  className?: string;
+}) {
+  if (kind === "real") return null;
+  const style = testAccountStyles[kind];
+  return (
+    <Badge
+      variant={style.variant}
+      title={style.title}
+      className={className}
+    >
+      {style.label}
     </Badge>
   );
 }

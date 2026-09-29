@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCostSeries, computeMetrics } from "@/services/analytics";
-import type { UsageEvent } from "@/types";
+import {
+  buildCostSeries,
+  buildUserSeries,
+  computeMetrics,
+} from "@/services/analytics";
+import type { GenerationRecord, TestDeviceLabel, UsageEvent } from "@/types";
 
 function event(overrides: Partial<UsageEvent>): UsageEvent {
   return {
@@ -21,6 +25,120 @@ function event(overrides: Partial<UsageEvent>): UsageEvent {
     ...overrides,
   };
 }
+
+interface MetricUser {
+  createdAt: Date | null;
+  lastLoginAt?: Date | null;
+  lastActiveAt?: Date | null;
+  testDevice?: TestDeviceLabel | null;
+  plan?: "free" | "live_weather" | "live_weather_plus";
+  billingVerified?: boolean;
+}
+
+function user(overrides: Partial<MetricUser> = {}): MetricUser {
+  return { createdAt: new Date(), ...overrides };
+}
+
+function generation(overrides: Partial<GenerationRecord> = {}): GenerationRecord {
+  return {
+    id: "gen_1",
+    uid: "u1",
+    userEmail: null,
+    type: "image",
+    routingContext: null,
+    status: "completed",
+    rawStatus: "ready",
+    provider: null,
+    actualProvider: null,
+    model: null,
+    imageModelId: null,
+    videoModelId: null,
+    primaryProvider: null,
+    primaryModel: null,
+    fallbackProvider: null,
+    fallbackModel: null,
+    fallbackUsed: false,
+    providerRequestId: null,
+    retryCount: 0,
+    presetId: null,
+    personType: null,
+    createdAt: new Date(),
+    startedAt: null,
+    completedAt: null,
+    durationMs: null,
+    estimatedCost: null,
+    currency: "USD",
+    errorCode: null,
+    errorMessage: null,
+    timeout: false,
+    ...overrides,
+  };
+}
+
+const deviceLabel: TestDeviceLabel = { kind: "device", since: null };
+const suspectedLabel: TestDeviceLabel = { kind: "suspected", since: null };
+
+describe("computeMetrics test account exclusion", () => {
+  it("excludes labelled accounts from every user count", () => {
+    const today = new Date();
+    const users: MetricUser[] = [
+      user({ createdAt: today, lastActiveAt: today }),
+      user({ createdAt: today, lastActiveAt: today, testDevice: deviceLabel }),
+      user({ createdAt: today, lastActiveAt: today, testDevice: suspectedLabel }),
+    ];
+
+    const metrics = computeMetrics(users, [], []);
+
+    expect(metrics.totalUsers).toBe(1);
+    expect(metrics.newUsersToday).toBe(1);
+    expect(metrics.newUsers7d).toBe(1);
+    expect(metrics.activeUsersToday).toBe(1);
+    expect(metrics.activeUsers7d).toBe(1);
+  });
+
+  it("counts a mislabelled paid account as a real user", () => {
+    const users: MetricUser[] = [
+      user({
+        plan: "live_weather_plus",
+        billingVerified: true,
+        testDevice: suspectedLabel,
+      }),
+    ];
+
+    expect(computeMetrics(users, [], []).totalUsers).toBe(1);
+  });
+
+  it("keeps a labelled account's generations and cost in the totals", () => {
+    const startedAt = new Date();
+    startedAt.setHours(9, 0, 0, 0);
+    const users: MetricUser[] = [user({ testDevice: deviceLabel })];
+    const generations = [generation({ uid: "u1", createdAt: startedAt })];
+    const events = [event({ startedAt, estimatedCostUsd: 0.5 })];
+
+    const metrics = computeMetrics(users, generations, events);
+
+    expect(metrics.totalUsers).toBe(0);
+    expect(metrics.imageGenerationsToday).toBe(1);
+    expect(metrics.estimatedCostToday).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe("buildUserSeries test account exclusion", () => {
+  it("does not count labelled registrations", () => {
+    const today = new Date();
+    const series = buildUserSeries(
+      [
+        user({ createdAt: today }),
+        user({ createdAt: today, testDevice: deviceLabel }),
+        user({ createdAt: today, testDevice: suspectedLabel }),
+      ],
+      1,
+    );
+
+    expect(series).toHaveLength(1);
+    expect(series[0].value).toBe(1);
+  });
+});
 
 describe("buildCostSeries", () => {
   it("buckets usage cost by local day and sums empty days to zero", () => {

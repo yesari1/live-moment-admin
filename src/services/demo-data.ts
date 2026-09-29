@@ -128,6 +128,25 @@ function email(i: number) {
   return `${pick(firsts)}.${pick(lasts)}${i}@example.com`;
 }
 
+/**
+ * Deterministic Test Lab labels so demo mode shows every state: `device`,
+ * `suspected` and an admin-cleared `suspected: false` (which maps to `null`, a
+ * real user, exactly like an unlabelled account). Only free accounts are
+ * labelled: the console counts a labelled paid account as a real user.
+ */
+function demoTestDevice(
+  index: number,
+  plan: AccountPlan,
+): AdminUser["testDevice"] {
+  if (plan !== "free") return null;
+  const slot = index % 12;
+  if (slot === 5) return { kind: "device", since: iso(40 * DAY_MS) };
+  if (slot === 7) return { kind: "suspected", since: iso(30 * DAY_MS) };
+  // slot 9 stands in for an admin-cleared label; it is a real user like the
+  // rest.
+  return null;
+}
+
 /* ------------------------------------------------------------------ users */
 
 export const demoUsers: AdminUser[] = Array.from({ length: 128 }, (_, i) => {
@@ -156,6 +175,7 @@ export const demoUsers: AdminUser[] = Array.from({ length: 128 }, (_, i) => {
     freePreviewUsed: plan !== "free" || chance(0.6),
     billingVerified: plan !== "free",
     providers: ["google.com", chance(0.5) ? "password" : "emailLink"],
+    testDevice: demoTestDevice(i, plan),
   };
 });
 

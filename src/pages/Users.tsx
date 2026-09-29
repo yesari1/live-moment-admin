@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   ShieldAlert,
   Trash2,
+  UserCheck,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ import {
   AccountStatusBadge,
   GenerationStatusBadge,
   PlanBadge,
+  TestAccountBadge,
 } from "@/components/shared/status-badge";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +58,12 @@ import {
   mergeUserStats,
   updateUser,
 } from "@/services/data-service";
+import {
+  filterByTestAccount,
+  isTestAccount,
+  testAccountKind,
+  type TestAccountFilter,
+} from "@/lib/test-accounts";
 import {
   formatDate,
   formatDateTime,
@@ -77,6 +85,8 @@ export function UsersPage() {
 
   const [planFilter, setPlanFilter] = React.useState<PlanFilter>("all");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
+  const [testFilter, setTestFilter] =
+    React.useState<TestAccountFilter>("real");
   const [selectedUid, setSelectedUid] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState<AdminUser | null>(null);
   const [deleting, setDeleting] = React.useState(false);
@@ -95,12 +105,25 @@ export function UsersPage() {
 
   const filtered = React.useMemo(
     () =>
-      users.filter((user) => {
-        if (planFilter !== "all" && user.plan !== planFilter) return false;
-        if (statusFilter !== "all" && user.status !== statusFilter) return false;
-        return true;
-      }),
-    [users, planFilter, statusFilter],
+      filterByTestAccount(
+        users.filter((user) => {
+          if (planFilter !== "all" && user.plan !== planFilter) return false;
+          if (statusFilter !== "all" && user.status !== statusFilter) return false;
+          return true;
+        }),
+        testFilter,
+      ),
+    [users, planFilter, statusFilter, testFilter],
+  );
+
+  // StatCards count real users only, matching the Dashboard.
+  const realUsers = React.useMemo(
+    () => filterByTestAccount(users, "real"),
+    [users],
+  );
+  const testUserCount = React.useMemo(
+    () => users.filter(isTestAccount).length,
+    [users],
   );
 
   const selected = React.useMemo(
@@ -147,6 +170,10 @@ export function UsersPage() {
             <p className="truncate text-sm font-medium">
               {row.original.email ?? "—"}
             </p>
+            <TestAccountBadge
+              kind={testAccountKind(row.original)}
+              className="my-1"
+            />
             <p className="truncate text-xs text-muted-foreground">
               {truncateMiddle(row.original.uid, 20)}
             </p>
@@ -251,6 +278,22 @@ export function UsersPage() {
                   )}
                   {row.original.status === "disabled" ? "Enable" : "Disable"}
                 </DropdownMenuItem>
+                {testAccountKind(row.original) === "suspected" && (
+                  <DropdownMenuItem
+                    onClick={() =>
+                      void handlePatchFor(
+                        row.original,
+                        { clearTestLabel: true },
+                        "Marked as a real user.",
+                        actor,
+                        usersQuery.refresh,
+                      )
+                    }
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    Not a test account
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -289,20 +332,20 @@ export function UsersPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total users" value={formatNumber(users.length)} loading={loading} />
+        <StatCard label="Total users" value={formatNumber(realUsers.length)} loading={loading} />
         <StatCard
           label="Active"
-          value={formatNumber(users.filter((u) => u.status === "active").length)}
+          value={formatNumber(realUsers.filter((u) => u.status === "active").length)}
           loading={loading}
         />
         <StatCard
           label="Disabled"
-          value={formatNumber(users.filter((u) => u.status === "disabled").length)}
+          value={formatNumber(realUsers.filter((u) => u.status === "disabled").length)}
           loading={loading}
         />
         <StatCard
           label="Paid plans"
-          value={formatNumber(users.filter((u) => u.plan !== "free").length)}
+          value={formatNumber(realUsers.filter((u) => u.plan !== "free").length)}
           loading={loading}
         />
       </div>
@@ -313,7 +356,7 @@ export function UsersPage() {
         loading={loading}
         searchPlaceholder="Search by email or user ID…"
         emptyTitle="No users match these filters"
-        emptyDescription="Try clearing the plan or status filters, or adjusting your search."
+        emptyDescription="Try clearing the plan or status filters, or adjusting your search. Test accounts are hidden by default — choose All users or Test devices to see them."
         getRowId={(row) => row.uid}
         onRowClick={(row) => setSelectedUid(row.uid)}
         toolbar={
@@ -347,6 +390,21 @@ export function UsersPage() {
                 <SelectItem value="disabled">Disabled</SelectItem>
                 <SelectItem value="review">Support review</SelectItem>
                 <SelectItem value="deletion_pending">Deletion pending</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={testFilter}
+              onValueChange={(value) => setTestFilter(value as TestAccountFilter)}
+            >
+              <SelectTrigger className="h-9 w-[170px]">
+                <SelectValue placeholder="Accounts" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="real">Real users</SelectItem>
+                <SelectItem value="all">All users</SelectItem>
+                <SelectItem value="test">
+                  Test devices ({formatNumber(testUserCount)})
+                </SelectItem>
               </SelectContent>
             </Select>
           </>
@@ -466,6 +524,7 @@ function UserDetailDrawer({
           <SheetTitle className="flex items-center gap-2">
             {user.email ?? user.uid}
             <PlanBadge plan={user.plan} />
+            <TestAccountBadge kind={testAccountKind(user)} />
             <AccountStatusBadge status={user.status} />
           </SheetTitle>
           <SheetDescription>
@@ -499,6 +558,21 @@ function UserDetailDrawer({
             <div className="grid grid-cols-2 gap-3">
               <Detail label="Plan" value={PLAN_LABELS[user.plan]} />
               <Detail label="Status" value={user.status} />
+              {testAccountKind(user) !== "real" && (
+                <Detail
+                  label="Test account"
+                  value={
+                    <span className="flex flex-wrap items-center gap-2">
+                      <TestAccountBadge kind={testAccountKind(user)} />
+                      {user.testDevice?.since && (
+                        <span className="text-xs text-muted-foreground">
+                          since {formatDate(user.testDevice.since)}
+                        </span>
+                      )}
+                    </span>
+                  }
+                />
+              )}
               <Detail label="Registered" value={formatDateTime(user.createdAt)} />
               <Detail
                 label="Last login"
@@ -571,6 +645,20 @@ function UserDetailDrawer({
                 >
                   <ShieldAlert className="h-4 w-4" /> Mark for review
                 </Button>
+                {testAccountKind(user) === "suspected" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void patch(
+                        { clearTestLabel: true },
+                        "Marked as a real user.",
+                      )
+                    }
+                  >
+                    <UserCheck className="h-4 w-4" /> Not a test account
+                  </Button>
+                )}
                 <Button
                   variant="destructive"
                   size="sm"

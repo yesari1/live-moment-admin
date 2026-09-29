@@ -37,6 +37,21 @@ export type AccountStatus =
   | "deletion_pending"
   | "review";
 
+/**
+ * A Test Lab / pre-launch robot label read from `users/{uid}.testDevice`.
+ *
+ * `device` is the stronger label: the app reported a Firebase Test Lab device
+ * and the backend stored `firebaseTestLab: true`. `suspected` is the weaker
+ * guess written by a one-off script for accounts that predate the device
+ * check. A missing label, `firebaseTestLab: false` or an admin-cleared
+ * `suspected: false` all map to `null` (a real user).
+ */
+export interface TestDeviceLabel {
+  kind: "device" | "suspected";
+  /** `detectedAt` for device labels, `suspectedAt` for suspected ones. */
+  since: Date | null;
+}
+
 export interface AdminUser {
   uid: string;
   email: string | null;
@@ -56,6 +71,8 @@ export interface AdminUser {
   freePreviewUsed: boolean;
   billingVerified: boolean;
   providers: string[];
+  /** Test Lab label, or `null` for a real user. */
+  testDevice: TestDeviceLabel | null;
 }
 
 export interface GenerationRecord {
@@ -291,7 +308,8 @@ export type AuditAction =
   | "USER_DELETED"
   | "USER_CREDITS_UPDATED"
   | "USER_PLAN_UPDATED"
-  | "USER_MARKED_FOR_REVIEW";
+  | "USER_MARKED_FOR_REVIEW"
+  | "USER_TEST_LABEL_CLEARED";
 
 export interface ModelCapabilities {
   imageInput: boolean;

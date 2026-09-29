@@ -129,6 +129,12 @@ export interface UserPatch {
   supportReview?: boolean;
   credits?: number;
   plan?: AdminUser["plan"];
+  /**
+   * Admin says a "likely test" guess was wrong. Writes only
+   * `testDevice.suspected = false` via a dotted path, so `firebaseTestLab`
+   * and `detectedAt` survive.
+   */
+  clearTestLabel?: true;
 }
 
 export async function updateUser(
@@ -148,18 +154,25 @@ export async function updateUser(
     }
     if (patch.credits !== undefined) user.credits = patch.credits;
     if (patch.plan !== undefined) user.plan = patch.plan;
+    if (patch.clearTestLabel !== undefined) {
+      // A device label is a fact and survives the clear, mirroring the live
+      // dotted write; only a "likely test" guess turns into a real user.
+      if (user.testDevice?.kind === "suspected") user.testDevice = null;
+    }
     recordDemoAudit({
       adminUid: actor.uid,
       adminEmail: actor.email,
-      action: patch.disabled !== undefined
-        ? patch.disabled
-          ? "USER_DISABLED"
-          : "USER_ENABLED"
-        : patch.credits !== undefined
-          ? "USER_CREDITS_UPDATED"
-          : patch.plan !== undefined
-            ? "USER_PLAN_UPDATED"
-            : "USER_MARKED_FOR_REVIEW",
+      action: patch.clearTestLabel !== undefined
+        ? "USER_TEST_LABEL_CLEARED"
+        : patch.disabled !== undefined
+          ? patch.disabled
+            ? "USER_DISABLED"
+            : "USER_ENABLED"
+          : patch.credits !== undefined
+            ? "USER_CREDITS_UPDATED"
+            : patch.plan !== undefined
+              ? "USER_PLAN_UPDATED"
+              : "USER_MARKED_FOR_REVIEW",
       target: uid,
       before,
       after: clone(user),
@@ -178,6 +191,9 @@ export async function updateUser(
         ? { standaloneWallpapersGranted: patch.credits }
         : {}),
       ...(patch.plan !== undefined ? { plan: patch.plan } : {}),
+      ...(patch.clearTestLabel !== undefined
+        ? { "testDevice.suspected": false as const }
+        : {}),
     },
     actor.uid,
   );
@@ -190,15 +206,17 @@ export async function updateUser(
     adminUid: actor.uid,
     adminEmail: actor.email,
     action:
-      patch.disabled !== undefined
-        ? patch.disabled
-          ? "USER_DISABLED"
-          : "USER_ENABLED"
-        : patch.credits !== undefined
-          ? "USER_CREDITS_UPDATED"
-          : patch.plan !== undefined
-            ? "USER_PLAN_UPDATED"
-            : "USER_MARKED_FOR_REVIEW",
+      patch.clearTestLabel !== undefined
+        ? "USER_TEST_LABEL_CLEARED"
+        : patch.disabled !== undefined
+          ? patch.disabled
+            ? "USER_DISABLED"
+            : "USER_ENABLED"
+          : patch.credits !== undefined
+            ? "USER_CREDITS_UPDATED"
+            : patch.plan !== undefined
+              ? "USER_PLAN_UPDATED"
+              : "USER_MARKED_FOR_REVIEW",
     target: uid,
     before: null,
     after: patch,

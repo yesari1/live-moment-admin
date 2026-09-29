@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { mapAiModel, mapFeedback, normalizeStatus } from "@/services/firestore-repo";
+import {
+  mapAiModel,
+  mapFeedback,
+  mapUser,
+  normalizeStatus,
+} from "@/services/firestore-repo";
 import { sumEventCost } from "@/services/data-service";
 import type { UsageEvent } from "@/types";
 
@@ -145,6 +150,76 @@ describe("sumEventCost", () => {
   it("stays uncosted when nothing was priced", () => {
     expect(sumEventCost([usageEvent({ estimatedCostUsd: null })])).toBeNull();
     expect(sumEventCost([])).toBeNull();
+  });
+});
+
+describe("mapUser testDevice", () => {
+  it("leaves an account without the field as a real user", () => {
+    expect(mapUser("u1", {}).testDevice).toBeNull();
+    expect(mapUser("u2", { testDevice: null }).testDevice).toBeNull();
+  });
+
+  it("reads a device label and its detectedAt", () => {
+    const user = mapUser("u3", {
+      testDevice: {
+        firebaseTestLab: true,
+        detectedAt: 1_757_000_000_000,
+      },
+    });
+
+    expect(user.testDevice?.kind).toBe("device");
+    expect(user.testDevice?.since?.getTime()).toBe(1_757_000_000_000);
+  });
+
+  it("lets firebaseTestLab win over suspected, including an admin-cleared false", () => {
+    const both = mapUser("u4", {
+      testDevice: {
+        firebaseTestLab: true,
+        detectedAt: 1_757_000_000_000,
+        suspected: true,
+        suspectedAt: 1_758_000_000_000,
+      },
+    });
+    expect(both.testDevice?.kind).toBe("device");
+    expect(both.testDevice?.since?.getTime()).toBe(1_757_000_000_000);
+
+    const cleared = mapUser("u5", {
+      testDevice: { firebaseTestLab: true, suspected: false },
+    });
+    expect(cleared.testDevice?.kind).toBe("device");
+    expect(cleared.testDevice?.since).toBeNull();
+  });
+
+  it("reads a suspected label from the script fields", () => {
+    const user = mapUser("u6", {
+      testDevice: {
+        suspected: true,
+        suspectedAt: { seconds: 1_757_000_000, nanoseconds: 0 },
+      },
+    });
+
+    expect(user.testDevice?.kind).toBe("suspected");
+    expect(user.testDevice?.since?.getTime()).toBe(1_757_000_000_000);
+  });
+
+  it("treats firebaseTestLab: false and suspected: false as real users", () => {
+    expect(
+      mapUser("u7", { testDevice: { firebaseTestLab: false } }).testDevice,
+    ).toBeNull();
+    expect(
+      mapUser("u8", { testDevice: { suspected: false } }).testDevice,
+    ).toBeNull();
+  });
+
+  it("ignores malformed testDevice values", () => {
+    expect(mapUser("u9", { testDevice: "device" }).testDevice).toBeNull();
+    expect(mapUser("u10", { testDevice: ["device"] }).testDevice).toBeNull();
+    expect(
+      mapUser("u11", { testDevice: { firebaseTestLab: "true" } }).testDevice,
+    ).toBeNull();
+    expect(
+      mapUser("u12", { testDevice: { suspected: 1 } }).testDevice,
+    ).toBeNull();
   });
 });
 

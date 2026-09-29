@@ -112,6 +112,23 @@ function accountStatus(data: RawDoc): AccountStatus {
   return "active";
 }
 
+/**
+ * Read `users/{uid}.testDevice` defensively. Anything that is not a map, or
+ * that carries no `true` label, is a real user: `firebaseTestLab` is only ever
+ * written as `true`, and `suspected: false` means an admin cleared the guess.
+ * The device flag wins over any `suspected` value.
+ */
+function mapTestDevice(value: unknown): AdminUser["testDevice"] {
+  if (!isRecord(value)) return null;
+  if (value.firebaseTestLab === true) {
+    return { kind: "device", since: toDate(value.detectedAt as never) };
+  }
+  if (value.suspected === true) {
+    return { kind: "suspected", since: toDate(value.suspectedAt as never) };
+  }
+  return null;
+}
+
 export function mapUser(id: string, data: RawDoc): AdminUser {
   return {
     uid: str(data.uid) ?? id,
@@ -136,6 +153,7 @@ export function mapUser(id: string, data: RawDoc): AdminUser {
     providers: Array.isArray(data.providers)
       ? (data.providers as string[])
       : [],
+    testDevice: mapTestDevice(data.testDevice),
   };
 }
 
@@ -887,6 +905,11 @@ export async function updateUserInFirestore(
     supportReview: boolean;
     standaloneWallpapersGranted: number;
     plan: string;
+    /**
+     * Dotted path: `updateDoc` merges it into the `testDevice` map, so
+     * `firebaseTestLab` and `detectedAt` survive. Never write the whole map.
+     */
+    "testDevice.suspected": false;
   }>,
   adminUid: string,
 ): Promise<boolean> {

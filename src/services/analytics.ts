@@ -6,8 +6,20 @@ import type {
   UsageEvent,
 } from "@/types";
 import { toDate } from "@/lib/format";
+import { isTestAccount, type TestAccountInput } from "@/lib/test-accounts";
 
 const DAY_MS = 86_400_000;
+
+/**
+ * User fields the user-facing metrics need. Test Lab / pre-launch robot
+ * accounts are excluded from every user count (generation and cost totals stay
+ * untouched: robot generations are real spend).
+ */
+type MetricUser = TestAccountInput & {
+  createdAt: Date | null;
+  lastLoginAt?: Date | null;
+  lastActiveAt?: Date | null;
+};
 
 function statusOf(record: GenerationRecord): GenerationRecord["status"] {
   return record.status;
@@ -22,7 +34,7 @@ function isFailed(record: GenerationRecord) {
 }
 
 export function computeMetrics(
-  users: { createdAt: Date | null; lastLoginAt?: Date | null; lastActiveAt?: Date | null }[],
+  users: MetricUser[],
   generations: GenerationRecord[],
   usageEvents: UsageEvent[],
 ): DashboardMetrics {
@@ -34,6 +46,8 @@ export function computeMetrics(
   monthStart.setHours(0, 0, 0, 0);
 
   const created = (d: Date | null | undefined) => d?.getTime() ?? 0;
+
+  const realUsers = users.filter((user) => !isTestAccount(user));
 
   const todays = generations.filter(
     (g) => created(g.createdAt) >= startOfToday.getTime(),
@@ -58,15 +72,15 @@ export function computeMetrics(
       .reduce((sum, e) => sum + (e.estimatedCostUsd ?? 0), 0);
 
   return {
-    totalUsers: users.length,
-    newUsersToday: users.filter((u) => created(u.createdAt) >= startOfToday.getTime())
+    totalUsers: realUsers.length,
+    newUsersToday: realUsers.filter((u) => created(u.createdAt) >= startOfToday.getTime())
       .length,
-    newUsers7d: users.filter((u) => created(u.createdAt) >= now - 7 * DAY_MS)
+    newUsers7d: realUsers.filter((u) => created(u.createdAt) >= now - 7 * DAY_MS)
       .length,
-    activeUsersToday: users.filter(
+    activeUsersToday: realUsers.filter(
       (u) => created(u.lastActiveAt ?? u.lastLoginAt) >= startOfToday.getTime(),
     ).length,
-    activeUsers7d: users.filter(
+    activeUsers7d: realUsers.filter(
       (u) => created(u.lastActiveAt ?? u.lastLoginAt) >= now - 7 * DAY_MS,
     ).length,
     imageGenerationsToday: images.length,
@@ -156,17 +170,18 @@ export function buildCostSeries(
 }
 
 export function buildUserSeries(
-  users: { createdAt: Date | null }[],
+  users: MetricUser[],
   days: number,
 ): TimeSeriesPoint[] {
   const points: TimeSeriesPoint[] = [];
+  const realUsers = users.filter((user) => !isTestAccount(user));
   for (let i = days - 1; i >= 0; i--) {
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
     dayStart.setDate(dayStart.getDate() - i);
     const start = dayStart.getTime();
     const end = start + DAY_MS;
-    const value = users.filter((u) => {
+    const value = realUsers.filter((u) => {
       const t = u.createdAt?.getTime() ?? 0;
       return t >= start && t < end;
     }).length;
