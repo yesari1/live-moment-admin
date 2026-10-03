@@ -36,6 +36,11 @@ import {
   Picker,
 } from "@/components/notifications/content-editor";
 import { CampaignEditor } from "@/components/notifications/campaign-editor";
+import { ManualTemplateEditor } from "@/components/notifications/manual-template-editor";
+import {
+  DeviceStatus,
+  TestResults,
+} from "@/components/notifications/device-status";
 import { useAuth } from "@/hooks/use-auth";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -48,6 +53,11 @@ import {
   canEditCampaign,
   contentErrors,
   emptyCampaign,
+  emptyManualTemplate,
+  isManualTemplate,
+  templateCampaign,
+  testContent,
+  testContentErrors,
   parseUids,
   settingsErrors,
   type NotificationCampaign,
@@ -78,28 +88,13 @@ export function Busy({ text = "Loading…" }: { text?: string }) {
 export function TestOutcomes({
   results,
 }: {
-  results: { uid: string; outcome: string; devices?: number }[];
+  results: React.ComponentProps<typeof TestResults>["results"];
 }) {
-  return (
-    <div className="space-y-2">
-      {results.map((r, i) => (
-        <Notice key={`${r.uid}-${i}`} danger={r.outcome !== "sent"}>
-          <span className="font-mono text-xs">{r.uid}</span> · {r.outcome}
-          {r.devices != null ? ` · ${r.devices} devices` : ""}
-          {r.outcome === "no_devices" && (
-            <p className="mt-1">
-              Open Live Moment on this account’s phone and allow notifications
-              to register a device.
-            </p>
-          )}
-        </Notice>
-      ))}
-    </div>
-  );
+  return <TestResults results={results} />;
 }
 export function NotificationsPage() {
-  const { getIdToken, demoMode } = useAuth();
-  const [tab, setTab] = React.useState("templates");
+  const { user, getIdToken, demoMode } = useAuth();
+  const [tab, setTab] = React.useState("send");
   const [templates, setTemplates] = React.useState<NotificationTemplate[]>([]);
   const [settings, setSettings] =
     React.useState<NotificationSettings>(DEFAULT_SETTINGS);
@@ -112,6 +107,9 @@ export function NotificationsPage() {
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [retry, setRetry] = React.useState(0);
   const [editor, setEditor] = React.useState<NotificationCampaign | null>(null);
+  const [editorMode, setEditorMode] = React.useState<"campaign" | "send">(
+    "campaign",
+  );
   const testedContent = React.useRef(new Set<string>());
   React.useEffect(() => {
     if (demoMode) return;
@@ -158,6 +156,7 @@ export function NotificationsPage() {
     return value;
   }
   function duplicate(c: NotificationCampaign) {
+    setEditorMode("send");
     setEditor({
       ...c,
       id: "",
@@ -169,22 +168,43 @@ export function NotificationsPage() {
       lastError: undefined,
     });
   }
+  function sendTemplate(template: NotificationTemplate) {
+    if (!user) return;
+    setEditorMode("send");
+    setEditor(templateCampaign(template, user.uid));
+  }
+  function quickSend() {
+    if (!user) return;
+    setEditorMode("send");
+    setEditor({
+      ...emptyCampaign(),
+      audience: { kind: "uids", uids: [user.uid] },
+    });
+  }
   return (
     <div className="space-y-6">
       <PageHeader
         title="Notifications"
         description="Thoughtful messages, in every language. Manage plan reminders and product campaigns."
         actions={
-          <Button
-            onClick={() => {
-              setTab("campaigns");
-              setEditor(emptyCampaign());
-            }}
-            disabled={demoMode || !ready.settings}
-          >
-            <Plus />
-            New campaign
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={quickSend} disabled={demoMode}>
+              <Send />
+              Send Notification
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTab("campaigns");
+                setEditorMode("campaign");
+                setEditor(emptyCampaign());
+              }}
+              disabled={demoMode || !ready.settings}
+            >
+              <Plus />
+              New campaign
+            </Button>
+          </div>
         }
       />
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-gradient-to-r from-primary/10 to-transparent p-4">
@@ -226,6 +246,10 @@ export function NotificationsPage() {
           )}
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="h-auto flex-wrap justify-start gap-1">
+              <TabsTrigger value="send" className="gap-2">
+                <Send className="h-4 w-4" />
+                Send Notification
+              </TabsTrigger>
               <TabsTrigger value="templates" className="gap-2">
                 <FileText className="h-4 w-4" />
                 Templates
@@ -243,6 +267,34 @@ export function NotificationsPage() {
                 Log / stats
               </TabsTrigger>
             </TabsList>
+            <TabsContent value="send" className="mt-5 space-y-5">
+              <div className="rounded-xl border bg-gradient-to-br from-primary/10 to-card p-6">
+                <h2 className="text-lg font-semibold">
+                  Send a notification whenever you want
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                  Write a message or use a saved template, choose who receives
+                  it and send. You don’t need to create a campaign or save a
+                  draft first.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <Button onClick={quickSend}>
+                    <Send />
+                    Send Notification
+                  </Button>
+                  <Button variant="outline" onClick={() => setTab("templates")}>
+                    <FileText />
+                    Choose a template
+                  </Button>
+                </div>
+                <p className="mt-4 text-xs text-muted-foreground">
+                  Tests send immediately. Real notifications enter the backend
+                  delivery queue and start within the next 10-minute run; quiet
+                  hours and the daily cap still apply.
+                </p>
+              </div>
+              <DeviceStatus getToken={token} />
+            </TabsContent>
             {(["templates", "settings", "campaigns"] as const).map((key) =>
               errors[key] ? (
                 <TabsContent key={key} value={key}>
@@ -260,7 +312,11 @@ export function NotificationsPage() {
             <TabsContent value="templates" className="mt-5">
               {!errors.templates &&
                 (ready.templates ? (
-                  <TemplateList templates={templates} getToken={token} />
+                  <TemplateList
+                    templates={templates}
+                    getToken={token}
+                    onSend={sendTemplate}
+                  />
                 ) : (
                   <Busy />
                 ))}
@@ -278,7 +334,10 @@ export function NotificationsPage() {
                 (ready.campaigns ? (
                   <CampaignList
                     campaigns={campaigns}
-                    edit={setEditor}
+                    edit={(c) => {
+                      setEditorMode("campaign");
+                      setEditor(c);
+                    }}
                     duplicate={duplicate}
                   />
                 ) : (
@@ -293,6 +352,7 @@ export function NotificationsPage() {
             <CampaignEditor
               key={editor.id || "new"}
               initial={editor}
+              mode={editorMode}
               settings={settings}
               settingsReady={ready.settings && !errors.settings}
               getToken={token}
@@ -314,13 +374,17 @@ export function NotificationsPage() {
 function TemplateList({
   templates,
   getToken,
+  onSend,
 }: {
   templates: NotificationTemplate[];
   getToken: () => Promise<string>;
+  onSend: (template: NotificationTemplate) => void;
 }) {
   const { user } = useAuth();
   const [editor, setEditor] = React.useState<NotificationTemplate | null>(null);
   const [toggling, setToggling] = React.useState<string | null>(null);
+  const [manualEditor, setManualEditor] =
+    React.useState<NotificationTemplate | null>(null);
   async function toggle(template: NotificationTemplate, enabled: boolean) {
     if (!user) return;
     setToggling(template.id);
@@ -346,6 +410,67 @@ function TemplateList({
   }
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Your notification templates</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Save any message and send it again whenever you want. No reminder or
+            campaign setup.
+          </p>
+        </div>
+        <Button onClick={() => setManualEditor(emptyManualTemplate())}>
+          <Plus />
+          New template
+        </Button>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        {templates
+          .filter((t) => isManualTemplate(t.id))
+          .map((t) => (
+            <div key={t.id} className="space-y-4 rounded-xl border bg-card p-5">
+              <Badge variant="outline">Send on demand</Badge>
+              <h3 className="font-semibold">
+                {t.name || t.title[t.sourceLocale] || "Untitled template"}
+              </h3>
+              <p className="line-clamp-2 text-sm text-muted-foreground">
+                {t.body[t.sourceLocale] ||
+                  t.body.en ||
+                  "Add your notification text"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setManualEditor(t)}
+                >
+                  Edit template
+                </Button>
+                <Button size="sm" onClick={() => onSend(t)}>
+                  <Send />
+                  Send Notification
+                </Button>
+              </div>
+            </div>
+          ))}
+      </div>
+      {!templates.some((t) => isManualTemplate(t.id)) && (
+        <Notice>
+          Create your first reusable template for announcements, updates or a
+          personal message.
+        </Notice>
+      )}
+      {manualEditor && (
+        <ManualTemplateEditor
+          key={manualEditor.id}
+          initial={manualEditor}
+          getToken={getToken}
+          onClose={() => setManualEditor(null)}
+          onSend={(t) => {
+            setManualEditor(null);
+            onSend(t);
+          }}
+        />
+      )}
       <div>
         <h2 className="font-semibold">Automated plan reminders</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -402,6 +527,13 @@ function TemplateList({
               >
                 Edit reminder
               </Button>
+              <Button
+                disabled={!template}
+                onClick={() => template && onSend(template)}
+              >
+                <Send />
+                Send Notification
+              </Button>
             </div>
           );
         })}
@@ -412,6 +544,10 @@ function TemplateList({
           initial={editor}
           getToken={getToken}
           close={() => setEditor(null)}
+          onSend={(t) => {
+            setEditor(null);
+            onSend(t);
+          }}
         />
       )}
     </div>
@@ -421,10 +557,12 @@ function TemplateEditor({
   initial,
   getToken,
   close,
+  onSend,
 }: {
   initial: NotificationTemplate;
   getToken: () => Promise<string>;
   close: () => void;
+  onSend: (template: NotificationTemplate) => void;
 }) {
   const { user } = useAuth();
   const [value, setValue] = React.useState({
@@ -467,7 +605,7 @@ function TemplateEditor({
     setResults([]);
     try {
       const result = await sendNotificationTest(await getToken(), {
-        templateId: value.id,
+        content: testContent(value),
         target: "self",
       });
       setResults(result.results);
@@ -484,132 +622,139 @@ function TemplateEditor({
         if (!open && !busy && !translating) close();
       }}
     >
-      <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b p-5">
           <DialogTitle>{initial.id.replace(/_/g, " ")}</DialogTitle>
           <DialogDescription>{initial.trigger}</DialogDescription>
         </DialogHeader>
-        <fieldset disabled={busy} className="space-y-6">
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <span className="text-sm font-medium">Enable this reminder</span>
-            <Switch
-              aria-label="Enable this reminder"
-              checked={value.enabled}
-              disabled={translating}
-              onCheckedChange={(enabled) => setValue({ ...value, enabled })}
-            />
-          </div>
-          <ContentEditor
-            value={value}
-            onChange={setValue}
-            getToken={getToken}
-            onBusyChange={setTranslating}
-          />
-          {value.id === "plan_ending_soon" && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Days before expiry (1–14)">
-                <Input
-                  type="number"
-                  min={1}
-                  max={14}
-                  value={value.params.daysBefore ?? 3}
-                  disabled={translating}
-                  onChange={(e) =>
-                    setValue({
-                      ...value,
-                      params: {
-                        ...value.params,
-                        daysBefore: Number(e.target.value),
-                      },
-                    })
-                  }
-                />
-              </Field>
-              <Field label="Local send hour (0–23)">
-                <Input
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={value.params.sendHourLocal ?? 9}
-                  disabled={translating}
-                  onChange={(e) =>
-                    setValue({
-                      ...value,
-                      params: {
-                        ...value.params,
-                        sendHourLocal: Number(e.target.value),
-                      },
-                    })
-                  }
-                />
-              </Field>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <fieldset disabled={busy} className="space-y-6">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <span className="text-sm font-medium">Enable this reminder</span>
+              <Switch
+                aria-label="Enable this reminder"
+                checked={value.enabled}
+                disabled={translating}
+                onCheckedChange={(enabled) => setValue({ ...value, enabled })}
+              />
             </div>
-          )}
-          <PlanChoices
-            selected={value.audience.plans}
-            disabled={translating}
-            onChange={(plans) =>
-              setValue({ ...value, audience: { ...value.audience, plans } })
-            }
-          />
-          <p className="text-xs text-muted-foreground">
-            No plans selected means any plan.
-          </p>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={value.audience.excludeAdminGrant}
+            <ContentEditor
+              value={value}
+              onChange={setValue}
+              getToken={getToken}
+              onBusyChange={setTranslating}
+            />
+            {value.id === "plan_ending_soon" && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Days before expiry (1–14)">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={14}
+                    value={value.params.daysBefore ?? 3}
+                    disabled={translating}
+                    onChange={(e) =>
+                      setValue({
+                        ...value,
+                        params: {
+                          ...value.params,
+                          daysBefore: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="Local send hour (0–23)">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={value.params.sendHourLocal ?? 9}
+                    disabled={translating}
+                    onChange={(e) =>
+                      setValue({
+                        ...value,
+                        params: {
+                          ...value.params,
+                          sendHourLocal: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+            )}
+            <PlanChoices
+              selected={value.audience.plans}
               disabled={translating}
-              onChange={(e) =>
-                setValue({
-                  ...value,
-                  audience: {
-                    ...value.audience,
-                    excludeAdminGrant: e.target.checked,
-                  },
-                })
+              onChange={(plans) =>
+                setValue({ ...value, audience: { ...value.audience, plans } })
               }
             />
-            Exclude admin grants
-          </label>
-          {errors.length > 0 && <Notice danger>{errors.join(" · ")}</Notice>}
-          {paramsInvalid && (
-            <Notice danger>
-              Days before expiry must be 1–14; send hour must be 0–23.
-            </Notice>
-          )}
-          <TestOutcomes results={results} />
-          <p className="text-xs text-muted-foreground">
-            Template tests use the saved reminder and sample values. Save your
-            changes first to test them.
-          </p>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={close}
-              disabled={busy || translating}
-            >
-              Close
-            </Button>
-            <Button
-              variant="outline"
-              disabled={busy || translating}
-              onClick={() => void test()}
-            >
-              <SmartTestIcon />
-              Send test to me
-            </Button>
-            <Button
-              disabled={
-                busy || translating || errors.length > 0 || paramsInvalid
-              }
-              onClick={() => void save()}
-            >
-              {busy ? <Loader2 className="animate-spin" /> : <Save />}Save
-              reminder
-            </Button>
-          </DialogFooter>
-        </fieldset>
+            <p className="text-xs text-muted-foreground">
+              No plans selected means any plan.
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={value.audience.excludeAdminGrant}
+                disabled={translating}
+                onChange={(e) =>
+                  setValue({
+                    ...value,
+                    audience: {
+                      ...value.audience,
+                      excludeAdminGrant: e.target.checked,
+                    },
+                  })
+                }
+              />
+              Exclude admin grants
+            </label>
+            {errors.length > 0 && <Notice danger>{errors.join(" · ")}</Notice>}
+            {paramsInvalid && (
+              <Notice danger>
+                Days before expiry must be 1–14; send hour must be 0–23.
+              </Notice>
+            )}
+            <TestOutcomes results={results} />
+            <DeviceStatus getToken={getToken} />
+            <p className="text-xs text-muted-foreground">
+              Tests use the current text and sample plan/date values. You can
+              test your source language before translating the remaining
+              languages.
+            </p>
+          </fieldset>
+        </div>
+        <DialogFooter className="shrink-0 flex-wrap border-t bg-background p-4">
+          <Button
+            variant="outline"
+            onClick={close}
+            disabled={busy || translating}
+          >
+            Close
+          </Button>
+          <Button
+            variant="outline"
+            disabled={
+              busy || translating || testContentErrors(value).length > 0
+            }
+            onClick={() => void test()}
+          >
+            <SmartTestIcon />
+            Send test to me
+          </Button>
+          <Button
+            disabled={busy || translating || errors.length > 0 || paramsInvalid}
+            onClick={() => void save()}
+          >
+            {busy ? <Loader2 className="animate-spin" /> : <Save />}Save
+            reminder
+          </Button>
+          <Button disabled={busy || translating} onClick={() => onSend(value)}>
+            <Send /> Send Notification
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -961,7 +1106,7 @@ function CampaignList({
             <div className="flex flex-wrap gap-2">
               {canEditCampaign(c.status) && (
                 <Button size="sm" variant="outline" onClick={() => edit(c)}>
-                  Edit
+                  {c.status === "draft" ? "Send Notification" : "Edit"}
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => duplicate(c)}>

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LOCALES, emptyCampaign } from "@/lib/notifications";
+import {
+  LOCALES,
+  emptyCampaign,
+  emptyManualTemplate,
+} from "@/lib/notifications";
 
 const firestore = vi.hoisted(() => ({
   get: vi.fn(),
@@ -27,6 +31,7 @@ import {
   notificationError,
   previewAudience,
   saveNotificationCampaign,
+  saveNotificationTemplate,
   sendNotificationTest,
   transitionNotificationCampaign,
   translateNotification,
@@ -94,16 +99,14 @@ describe("notification endpoint contracts", () => {
   it("turns nested provider credit errors into an actionable message", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              error: { code: "TRANSLATION_CREDITS_EXHAUSTED" },
-            }),
-            { status: 502 },
-          ),
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: "TRANSLATION_CREDITS_EXHAUSTED" },
+          }),
+          { status: 502 },
         ),
+      ),
     );
     try {
       await translateNotification("token", "en", "Title", "Body");
@@ -130,6 +133,27 @@ describe("notification endpoint contracts", () => {
   });
 });
 describe("transactional campaign ownership", () => {
+  it("creates a named manual template with an audit record and no automatic trigger", async () => {
+    firestore.get.mockResolvedValue({
+      exists: () => false,
+      data: () => undefined,
+    });
+    const template = emptyManualTemplate();
+    template.name = "  Product announcement  ";
+    template.title.tr = "Merhaba";
+    template.body.tr = "Yeni içerik hazır";
+    await saveNotificationTemplate(template, actor);
+    expect(firestore.set.mock.calls[0][1]).toMatchObject({
+      name: "Product announcement",
+      enabled: false,
+      trigger: "manual",
+      channel: "product_updates",
+    });
+    expect(firestore.set.mock.calls[1][1]).toMatchObject({
+      action: "NOTIFICATION_TEMPLATE_UPDATED",
+      before: null,
+    });
+  });
   it("rejects scheduling if global delivery was disabled after the confirmation", async () => {
     firestore.get
       .mockResolvedValueOnce({ exists: () => false })

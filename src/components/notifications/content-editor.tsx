@@ -108,11 +108,13 @@ export function ContentEditor<T extends NotificationContent>({
   onChange,
   getToken,
   onBusyChange,
+  previewContent,
 }: {
   value: T;
   onChange: (value: T) => void;
   getToken: () => Promise<string>;
   onBusyChange: (busy: boolean) => void;
+  previewContent?: NotificationContent;
 }) {
   const [locale, setLocale] = React.useState<Locale>(value.sourceLocale);
   const [translating, setTranslating] = React.useState(false);
@@ -413,11 +415,11 @@ export function ContentEditor<T extends NotificationContent>({
               <span className="ml-auto font-normal text-slate-500">now</span>
             </div>
             <p className="break-words text-sm font-semibold">
-              {previewText(value.title[locale], locale) ||
+              {previewText((previewContent ?? value).title[locale], locale) ||
                 "Your notification title"}
             </p>
             <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed">
-              {previewText(value.body[locale], locale) ||
+              {previewText((previewContent ?? value).body[locale], locale) ||
                 "Your message appears here."}
             </p>
             {value.imageUrl.startsWith("https://") && (
@@ -438,8 +440,10 @@ export function ContentEditor<T extends NotificationContent>({
           </Notice>
         )}
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Preview uses sample plan and date values. A test arrives in the
-          receiving phone’s app language.
+          {previewContent
+            ? "Preview reflects this send’s text. Fill any plan/date values below before sending."
+            : "Preview uses sample plan and date values."}{" "}
+          A test arrives in the receiving phone’s app language.
         </p>
         <div className="space-y-2 rounded-xl border p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

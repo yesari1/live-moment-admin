@@ -28,8 +28,10 @@ import {
   audienceSummary,
   campaignErrors,
   canEditCampaign,
-  contentErrors,
   contentFingerprint,
+  renderNotificationVariables,
+  testContent,
+  testContentErrors,
   parseUids,
   type Audience,
   type NotificationCampaign,
@@ -43,6 +45,7 @@ import {
   type AudienceCount,
   type TestResult,
 } from "@/services/notifications";
+import { DeviceStatus, TestResults } from "./device-status";
 
 const LOCAL_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 function dateInput(date: Date | null): string {
@@ -59,6 +62,7 @@ export function CampaignEditor({
   testedContent,
   onClose,
   onSettings,
+  mode = "campaign",
 }: {
   initial: NotificationCampaign;
   liveCampaign?: NotificationCampaign;
@@ -68,6 +72,7 @@ export function CampaignEditor({
   testedContent: Set<string>;
   onClose: () => void;
   onSettings: () => void;
+  mode?: "campaign" | "send";
 }) {
   const { user } = useAuth();
   const [value, setValue] = React.useState({
@@ -96,12 +101,25 @@ export function CampaignEditor({
   } | null>(null);
   const [typed, setTyped] = React.useState("");
   const [testVersion, setTestVersion] = React.useState(0);
+  const [planName, setPlanName] = React.useState("");
+  const [variableDate, setVariableDate] = React.useState("");
+  const hasPlanVariable = LOCALES.some((l) =>
+    (value.title[l] + value.body[l]).includes("{planName}"),
+  );
+  const hasDateVariable = LOCALES.some((l) =>
+    (value.title[l] + value.body[l]).includes("{date}"),
+  );
   const audienceKey = JSON.stringify(value.audience);
   const locked =
     !!initial.id && (!liveCampaign || !canEditCampaign(liveCampaign.status));
   const scheduleDate =
     timing === "later" && scheduledTime ? new Date(scheduledTime) : null;
-  const campaign = { ...value, scheduledAt: scheduleDate };
+  const campaign = {
+    ...value,
+    ...renderNotificationVariables(value, planName, variableDate),
+    scheduledAt: scheduleDate,
+  };
+  const fingerprint = contentFingerprint(campaign);
   const errors = [
     ...campaignErrors(campaign, true),
     ...(timing === "later" && !scheduledTime
@@ -109,11 +127,29 @@ export function CampaignEditor({
       : []),
   ];
   const tested = React.useMemo(
-    () => testedContent.has(contentFingerprint(value)),
-    [value, testedContent, testVersion],
+    () => testedContent.has(fingerprint),
+    [fingerprint, testedContent, testVersion],
   );
   const blockedAll = value.audience.kind === "all" && !tested;
-  const contentInvalid = contentErrors(value, true).length > 0;
+  const contentInvalid = testContentErrors(campaign).length > 0;
+  const blockers = [
+    ...(locked
+      ? ["This delivery has started or finished. Duplicate it to send again."]
+      : []),
+    ...(!settingsReady
+      ? ["Waiting for global notification settings."]
+      : !settings.enabled
+        ? ["Delivery is paused. Enable global delivery in Settings."]
+        : []),
+    ...errors,
+    ...(blockedAll
+      ? [
+          "Send a successful test of this content before sending to all accounts.",
+        ]
+      : []),
+    ...(countLoading ? ["Checking the audience…"] : []),
+    ...(countError ? [countError] : []),
+  ];
   const readyToSend =
     !busy &&
     !translating &&
@@ -161,15 +197,15 @@ export function CampaignEditor({
   async function test() {
     setBusy(true);
     setResults([]);
-    const fingerprint = contentFingerprint(value);
+    const testFingerprint = fingerprint;
     try {
       const result = await sendNotificationTest(await getToken(), {
-        content: value,
+        content: testContent(campaign),
         target,
       });
       setResults(result.results);
       if (result.results.some((r) => r.outcome === "sent")) {
-        testedContent.add(fingerprint);
+        testedContent.add(testFingerprint);
         setTestVersion((v) => v + 1);
         toast.success("Test sent", {
           description: "Check the receiving device before scheduling.",
@@ -247,10 +283,14 @@ export function CampaignEditor({
         if (!open && !busy && !translating && !confirmed) onClose();
       }}
     >
-      <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b p-5 pr-12">
           <DialogTitle>
-            {initial.id ? "Edit campaign" : "Create campaign"}
+            {mode === "send"
+              ? "Send Notification"
+              : initial.id
+                ? "Edit campaign"
+                : "Create campaign"}
           </DialogTitle>
           <DialogDescription>
             Compose, translate and test your message before sending.{" "}
@@ -259,240 +299,301 @@ export function CampaignEditor({
             </span>
           </DialogDescription>
         </DialogHeader>
-        {locked && (
-          <Notice danger>
-            This campaign is now {liveCampaign?.status ?? "unavailable"}. Close
-            the editor and use Duplicate to create a new draft.
-          </Notice>
-        )}
-        <fieldset
-          disabled={busy || locked || !!confirmed}
-          className="space-y-6"
-        >
-          <ContentEditor
-            value={value}
-            onChange={setValue}
-            getToken={getToken}
-            onBusyChange={setTranslating}
-          />
-          <fieldset
-            disabled={translating}
-            className="space-y-4 rounded-xl border bg-muted/10 p-5"
-          >
-            <h3 className="flex items-center gap-2 font-semibold">
-              <Users className="h-4 w-4" />
-              Audience
-            </h3>
-            <Picker
-              label="Who should receive this?"
-              value={value.audience.kind}
-              onChange={(kind) =>
-                changeAudience({
-                  kind: kind as Audience["kind"],
-                  ...(kind === "plans"
-                    ? { plans: [] }
-                    : kind === "uids"
-                      ? { uids: parseUids(uids) }
-                      : {}),
-                  ...(value.audience.locales?.length
-                    ? { locales: value.audience.locales }
-                    : {}),
-                })
-              }
-              options={{
-                all: "All accounts",
-                plans: "By plan",
-                lapsedOnly: "Lapsed subscribers only",
-                uids: "Specific account UIDs",
-              }}
-            />
-            {value.audience.kind === "plans" && (
-              <div className="flex flex-wrap gap-2">
-                {PLANS.map((p) => (
-                  <label
-                    key={p}
-                    className="flex items-center gap-2 rounded-lg border p-3 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={value.audience.plans?.includes(p) ?? false}
-                      onChange={(e) =>
-                        changeAudience({
-                          ...value.audience,
-                          plans: e.target.checked
-                            ? [...(value.audience.plans ?? []), p]
-                            : value.audience.plans?.filter((x) => x !== p),
-                        })
-                      }
-                    />
-                    {p.replace(/_/g, " ")}
-                  </label>
-                ))}
-              </div>
-            )}
-            {value.audience.kind === "uids" && (
-              <Field
-                label="Account UIDs"
-                hint="Up to 1,000 · one UID per line, comma or space"
-              >
-                <Textarea
-                  rows={3}
-                  value={uids}
-                  onChange={(e) => {
-                    setUids(e.target.value);
-                    changeAudience({
-                      ...value.audience,
-                      uids: parseUids(e.target.value),
-                    });
-                  }}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    if (!user) return;
-                    const next = parseUids(`${uids}\n${user.uid}`);
-                    setUids(next.join("\n"));
-                    changeAudience({ ...value.audience, uids: next });
-                  }}
-                >
-                  Add me
-                </Button>
-              </Field>
-            )}
-            <div className="space-y-2">
-              <p className="text-sm font-medium">
-                Device language filter{" "}
-                <span className="font-normal text-muted-foreground">
-                  · optional
-                </span>
-              </p>
-              <div className="flex flex-wrap gap-3">
-                {LOCALES.map((l) => (
-                  <label key={l} className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={value.audience.locales?.includes(l) ?? false}
-                      onChange={(e) => {
-                        const locales = e.target.checked
-                          ? [...(value.audience.locales ?? []), l]
-                          : (value.audience.locales?.filter((x) => x !== l) ??
-                            []);
-                        const { locales: _old, ...base } = value.audience;
-                        changeAudience({
-                          ...base,
-                          ...(locales.length ? { locales } : {}),
-                        });
-                      }}
-                    />
-                    {LANGUAGE_NAMES[l]}
-                  </label>
-                ))}
-              </div>
-            </div>
-            {audienceErrors(value.audience).length > 0 ? (
-              <Notice danger>
-                {audienceErrors(value.audience).join(" · ")}
-              </Notice>
-            ) : countLoading ? (
-              <Notice>
-                <span className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Counting reachable accounts…
-                </span>
-              </Notice>
-            ) : (
-              count && (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-                  <p className="text-2xl font-semibold tabular-nums text-primary">
-                    {count.reachable.toLocaleString()}{" "}
-                    <span className="text-sm font-normal text-foreground">
-                      can receive this
-                    </span>
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {count.users.toLocaleString()} accounts match the audience
-                  </p>
-                </div>
-              )
-            )}
-            {countError && <Notice danger>{countError}</Notice>}
-          </fieldset>
-          <fieldset
-            disabled={translating}
-            className="grid gap-4 sm:grid-cols-2"
-          >
-            <Picker
-              label="Delivery time"
-              value={timing}
-              onChange={setTiming}
-              options={{
-                now: "Send now (next run, ≤ 10 min)",
-                later: "Schedule for later",
-              }}
-            />
-            {timing === "later" && (
-              <Field
-                label={`Date and time · ${LOCAL_TIMEZONE}`}
-                hint={
-                  scheduleDate && Number.isFinite(scheduleDate.getTime())
-                    ? `UTC: ${scheduleDate.toISOString()}`
-                    : "Choose a time in your browser’s local time zone"
-                }
-              >
-                <Input
-                  type="datetime-local"
-                  value={scheduledTime}
-                  onChange={(e) => setScheduledTime(e.target.value)}
-                />
-              </Field>
-            )}
-          </fieldset>
-          <Notice>
-            Daily cap: {settings.maxPerUserPerDay} per rolling 24 hours. Capped
-            accounts and accounts without devices are skipped.
-            {settings.quietHours
-              ? ` Quiet hours (${settings.quietHours.start}–${settings.quietHours.end}, user’s local time) defer delivery.`
-              : " Quiet hours are off."}
-          </Notice>
-          {!settingsReady || !settings.enabled ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {locked && (
             <Notice danger>
-              Send / Schedule is disabled because{" "}
-              {settingsReady
-                ? "global notifications are paused"
-                : "notification settings have not loaded"}
-              .{" "}
-              <button
-                type="button"
-                className="font-medium underline"
-                onClick={onSettings}
-              >
-                Open Settings
-              </button>
-            </Notice>
-          ) : null}
-          {blockedAll && (
-            <Notice>
-              Before sending to all accounts, send a successful test for this
-              exact content in this session. Changing the message, image or
-              destination requires a new test.
+              This campaign is now {liveCampaign?.status ?? "unavailable"}.
+              Close the editor and use Duplicate to create a new draft.
             </Notice>
           )}
-          {errors.length > 0 && <Notice danger>{errors.join(" · ")}</Notice>}
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-48">
+          <fieldset
+            disabled={busy || locked || !!confirmed}
+            className="space-y-6"
+          >
+            <ContentEditor
+              value={value}
+              previewContent={campaign}
+              onChange={setValue}
+              getToken={getToken}
+              onBusyChange={setTranslating}
+            />
+            {(hasPlanVariable || hasDateVariable) && (
+              <div className="space-y-3 rounded-xl border p-4">
+                <p className="text-sm font-medium">
+                  Values for this one-off notification
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Automatic reminders use each account’s own plan and expiry. A
+                  manual send uses the values you enter here for everyone in the
+                  audience.
+                </p>
+                {hasPlanVariable && (
+                  <Picker
+                    label="Plan name in this message"
+                    value={planName}
+                    onChange={setPlanName}
+                    options={{
+                      "": "Choose a plan",
+                      "Live Weather": "Live Weather",
+                      "Live Weather Plus": "Live Weather Plus",
+                    }}
+                  />
+                )}
+                {hasDateVariable && (
+                  <Field label="Date in this message">
+                    <Input
+                      type="date"
+                      value={variableDate}
+                      onChange={(e) => setVariableDate(e.target.value)}
+                    />
+                  </Field>
+                )}
+              </div>
+            )}
+            <fieldset
+              disabled={translating}
+              className="space-y-4 rounded-xl border bg-muted/10 p-5"
+            >
+              <h3 className="flex items-center gap-2 font-semibold">
+                <Users className="h-4 w-4" />
+                Audience
+              </h3>
               <Picker
-                label="Send test to"
-                value={target}
-                onChange={(v) => setTarget(v as typeof target)}
-                disabled={translating}
+                label="Who should receive this?"
+                value={value.audience.kind}
+                onChange={(kind) =>
+                  changeAudience({
+                    kind: kind as Audience["kind"],
+                    ...(kind === "plans"
+                      ? { plans: [] }
+                      : kind === "uids"
+                        ? { uids: parseUids(uids) }
+                        : {}),
+                    ...(value.audience.locales?.length
+                      ? { locales: value.audience.locales }
+                      : {}),
+                  })
+                }
                 options={{
-                  self: "My devices",
-                  testRecipients: "Saved test recipients",
+                  all: "All accounts",
+                  plans: "By plan",
+                  lapsedOnly: "Lapsed subscribers only",
+                  uids: "Specific account UIDs",
                 }}
               />
+              {value.audience.kind === "plans" && (
+                <div className="flex flex-wrap gap-2">
+                  {PLANS.map((p) => (
+                    <label
+                      key={p}
+                      className="flex items-center gap-2 rounded-lg border p-3 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={value.audience.plans?.includes(p) ?? false}
+                        onChange={(e) =>
+                          changeAudience({
+                            ...value.audience,
+                            plans: e.target.checked
+                              ? [...(value.audience.plans ?? []), p]
+                              : value.audience.plans?.filter((x) => x !== p),
+                          })
+                        }
+                      />
+                      {p.replace(/_/g, " ")}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {value.audience.kind === "uids" && (
+                <Field
+                  label="Account UIDs"
+                  hint="Up to 1,000 · one UID per line, comma or space"
+                >
+                  <Textarea
+                    rows={3}
+                    value={uids}
+                    onChange={(e) => {
+                      setUids(e.target.value);
+                      changeAudience({
+                        ...value.audience,
+                        uids: parseUids(e.target.value),
+                      });
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (!user) return;
+                      const next = parseUids(`${uids}\n${user.uid}`);
+                      setUids(next.join("\n"));
+                      changeAudience({ ...value.audience, uids: next });
+                    }}
+                  >
+                    Add me
+                  </Button>
+                </Field>
+              )}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  Device language filter{" "}
+                  <span className="font-normal text-muted-foreground">
+                    · optional
+                  </span>
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {LOCALES.map((l) => (
+                    <label key={l} className="flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={value.audience.locales?.includes(l) ?? false}
+                        onChange={(e) => {
+                          const locales = e.target.checked
+                            ? [...(value.audience.locales ?? []), l]
+                            : (value.audience.locales?.filter((x) => x !== l) ??
+                              []);
+                          const { locales: _old, ...base } = value.audience;
+                          changeAudience({
+                            ...base,
+                            ...(locales.length ? { locales } : {}),
+                          });
+                        }}
+                      />
+                      {LANGUAGE_NAMES[l]}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {audienceErrors(value.audience).length > 0 ? (
+                <Notice danger>
+                  {audienceErrors(value.audience).join(" · ")}
+                </Notice>
+              ) : countLoading ? (
+                <Notice>
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Counting reachable accounts…
+                  </span>
+                </Notice>
+              ) : (
+                count && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+                    <p className="text-2xl font-semibold tabular-nums text-primary">
+                      {count.reachable.toLocaleString()}{" "}
+                      <span className="text-sm font-normal text-foreground">
+                        can receive this
+                      </span>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {count.users.toLocaleString()} accounts match the audience
+                    </p>
+                  </div>
+                )
+              )}
+              {countError && <Notice danger>{countError}</Notice>}
+            </fieldset>
+            <fieldset
+              disabled={translating}
+              className="grid gap-4 sm:grid-cols-2"
+            >
+              <Picker
+                label="Delivery time"
+                value={timing}
+                onChange={setTiming}
+                options={{
+                  now: "Send now (next run, ≤ 10 min)",
+                  later: "Schedule for later",
+                }}
+              />
+              {timing === "later" && (
+                <Field
+                  label={`Date and time · ${LOCAL_TIMEZONE}`}
+                  hint={
+                    scheduleDate && Number.isFinite(scheduleDate.getTime())
+                      ? `UTC: ${scheduleDate.toISOString()}`
+                      : "Choose a time in your browser’s local time zone"
+                  }
+                >
+                  <Input
+                    type="datetime-local"
+                    value={scheduledTime}
+                    onChange={(e) => setScheduledTime(e.target.value)}
+                  />
+                </Field>
+              )}
+            </fieldset>
+            <Notice>
+              Daily cap: {settings.maxPerUserPerDay} per rolling 24 hours.
+              Capped accounts and accounts without devices are skipped.
+              {settings.quietHours
+                ? ` Quiet hours (${settings.quietHours.start}–${settings.quietHours.end}, user’s local time) defer delivery.`
+                : " Quiet hours are off."}
+            </Notice>
+            {!settingsReady || !settings.enabled ? (
+              <Notice danger>
+                Send / Schedule is disabled because{" "}
+                {settingsReady
+                  ? "global notifications are paused"
+                  : "notification settings have not loaded"}
+                .{" "}
+                <button
+                  type="button"
+                  className="font-medium underline"
+                  onClick={onSettings}
+                >
+                  Open Settings
+                </button>
+              </Notice>
+            ) : null}
+            {blockedAll && (
+              <Notice>
+                Before sending to all accounts, send a successful test for this
+                exact content in this session. Changing the message, image or
+                destination requires a new test.
+              </Notice>
+            )}
+            {errors.length > 0 && <Notice danger>{errors.join(" · ")}</Notice>}
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-48">
+                <Picker
+                  label="Send test to"
+                  value={target}
+                  onChange={(v) => setTarget(v as typeof target)}
+                  disabled={translating}
+                  options={{
+                    self: "My devices",
+                    testRecipients: "Saved test recipients",
+                  }}
+                />
+              </div>
+              {tested && (
+                <Badge variant="success">This content was tested</Badge>
+              )}
             </div>
+            <p className="text-xs text-muted-foreground">
+              Tests ignore global delivery, quiet hours and the daily cap. They
+              use the receiving device’s app language.
+            </p>
+            <DeviceStatus getToken={getToken} />
+            <TestResults results={results} />
+          </fieldset>
+        </div>
+        <div className="shrink-0 space-y-2 border-t bg-background p-4">
+          {blockers.length > 0 && (
+            <p role="status" className="text-xs text-warning">
+              {blockers[0]}
+            </p>
+          )}
+          <DialogFooter className="flex-wrap">
+            <Button
+              variant="outline"
+              disabled={busy || translating || !!confirmed}
+              onClick={onClose}
+            >
+              Close
+            </Button>
             <Button
               variant="outline"
               disabled={
@@ -504,59 +605,31 @@ export function CampaignEditor({
               }
               onClick={() => void test()}
             >
-              <Send />
-              Send test
+              {busy ? <Loader2 className="animate-spin" /> : <Send />}Send Test
             </Button>
-            {tested && <Badge variant="success">This content was tested</Badge>}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Tests ignore global delivery, quiet hours and the daily cap. They
-            use the receiving device’s app language.
-          </p>
-          <div className="space-y-2">
-            {results.map((r, i) => (
-              <Notice key={`${r.uid}-${i}`} danger={r.outcome !== "sent"}>
-                {r.uid} · {r.outcome}
-                {r.outcome === "no_devices" && (
-                  <p>
-                    Open Live Moment on this account’s phone and allow
-                    notifications to register a device.
-                  </p>
-                )}
-              </Notice>
-            ))}
-          </div>
-        </fieldset>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            disabled={busy || translating || !!confirmed}
-            onClick={onClose}
-          >
-            Close
-          </Button>
-          <Button
-            variant="outline"
-            disabled={
-              busy ||
-              translating ||
-              locked ||
-              !!confirmed ||
-              draftErrors.length > 0
-            }
-            onClick={() => void draft()}
-          >
-            <Save />
-            Save as draft
-          </Button>
-          <Button
-            disabled={!readyToSend || countLoading || !!confirmed}
-            onClick={() => void prepare()}
-          >
-            {busy ? <Loader2 className="animate-spin" /> : <Send />}
-            {timing === "now" ? "Review & send" : "Review & schedule"}
-          </Button>
-        </DialogFooter>
+            <Button
+              variant="outline"
+              disabled={
+                busy ||
+                translating ||
+                locked ||
+                !!confirmed ||
+                draftErrors.length > 0
+              }
+              onClick={() => void draft()}
+            >
+              <Save />
+              {mode === "send" ? "Save for later" : "Save as draft"}
+            </Button>
+            <Button
+              disabled={!readyToSend || countLoading || !!confirmed}
+              onClick={() => void prepare()}
+            >
+              {busy ? <Loader2 className="animate-spin" /> : <Send />}
+              {timing === "now" ? "Send Notification" : "Schedule Notification"}
+            </Button>
+          </DialogFooter>
+        </div>
         <Dialog
           open={!!confirmed}
           onOpenChange={(open) => !open && !busy && setConfirmed(null)}
@@ -565,8 +638,8 @@ export function CampaignEditor({
             <DialogHeader>
               <DialogTitle>
                 {timing === "now"
-                  ? "Send this campaign?"
-                  : "Schedule this campaign?"}
+                  ? "Send this notification?"
+                  : "Schedule this notification?"}
               </DialogTitle>
               <DialogDescription>
                 Send to {confirmed?.count.reachable.toLocaleString()} devices’

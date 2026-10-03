@@ -27,6 +27,7 @@ import {
   canEditCampaign,
   canTransitionCampaign,
   contentErrors,
+  isManualTemplate,
   localeMap,
   settingsErrors,
   type Audience,
@@ -169,14 +170,16 @@ export function watchTemplates(
     (snapshot) =>
       next(
         snapshot.docs
-          .filter((d) =>
-            TEMPLATE_IDS.includes(d.id as NotificationTemplate["id"]),
+          .filter(
+            (d) =>
+              TEMPLATE_IDS.some((id) => id === d.id) || isManualTemplate(d.id),
           )
           .map((d) => {
             const data = d.data();
             return {
               ...content(data),
               id: d.id as NotificationTemplate["id"],
+              ...(typeof data.name === "string" ? { name: data.name } : {}),
               enabled: data.enabled === true,
               trigger: data.trigger ?? "",
               params: data.params ?? {},
@@ -262,9 +265,12 @@ export async function saveNotificationTemplate(
   actor: Actor,
 ) {
   assertValid(contentErrors(value, value.enabled));
-  if (!TEMPLATE_IDS.includes(value.id))
+  const manual = isManualTemplate(value.id);
+  if (manual && !value.name?.trim())
+    throw new Error("Give this template a name.");
+  if (!TEMPLATE_IDS.some((id) => id === value.id) && !manual)
     throw new Error("Only seeded notification templates can be edited.");
-  if (value.channel !== "plan_reminders")
+  if (value.channel !== (manual ? "product_updates" : "plan_reminders"))
     throw new Error("Plan templates must use plan_reminders.");
   if (
     value.id === "plan_ending_soon" &&
@@ -280,11 +286,12 @@ export async function saveNotificationTemplate(
   await runTransaction(db, async (tx) => {
     const ref = doc(db, "notificationTemplates", value.id);
     const old = await tx.get(ref);
-    if (!old.exists())
+    if (!old.exists() && !manual)
       throw new Error("Template is missing. Run the backend seed first.");
     const payload = {
       ...contentPayload(value),
-      trigger: old.data().trigger,
+      ...(manual ? { enabled: false, name: value.name!.trim() } : {}),
+      trigger: manual ? "manual" : old.data()!.trigger,
       updatedAt: serverTimestamp(),
     };
     tx.set(ref, payload);
@@ -294,7 +301,7 @@ export async function saveNotificationTemplate(
       actor,
       "NOTIFICATION_TEMPLATE_UPDATED",
       value.id,
-      old.data(),
+      old.data() ?? null,
       payload,
     );
   });

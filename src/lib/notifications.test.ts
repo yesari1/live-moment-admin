@@ -9,6 +9,12 @@ import {
   contentErrors,
   contentFingerprint,
   emptyCampaign,
+  emptyManualTemplate,
+  isManualTemplate,
+  templateCampaign,
+  testContent,
+  testContentErrors,
+  renderNotificationVariables,
   expandedText,
   localeMap,
   previewText,
@@ -25,6 +31,43 @@ function completeCampaign() {
   return value;
 }
 describe("notification localization and validation", () => {
+  it("creates reusable manual templates and independent one-off sends", () => {
+    const template = emptyManualTemplate();
+    expect(isManualTemplate(template.id)).toBe(true);
+    expect(template.enabled).toBe(false);
+    template.title.tr = "Merhaba";
+    const send = templateCampaign(template, "my-account");
+    expect(send.id).toBe("");
+    expect(send.audience).toEqual({ kind: "uids", uids: ["my-account"] });
+    send.title.tr = "Changed";
+    expect(template.title.tr).toBe("Merhaba");
+  });
+  it("tests a complete source before translating and omits half-filled locales", () => {
+    const value = emptyCampaign();
+    value.title.tr = "Merhaba";
+    value.body.tr = "Yeni içerik hazır";
+    value.title.de = "Unfinished";
+    expect(testContentErrors(value)).toEqual([]);
+    expect(testContent(value).title).toEqual({ tr: "Merhaba" });
+    expect(testContent(value).body).toEqual({ tr: "Yeni içerik hazır" });
+    value.body.tr = "";
+    expect(testContentErrors(value)).toContain("Türkçe: body is empty");
+  });
+  it("requires actual variables for one-off delivery and renders localized dates", () => {
+    const value = completeCampaign();
+    for (const locale of LOCALES) value.body[locale] = "{planName}: {date}";
+    expect(campaignErrors(value, true).join(" ")).toContain("actual plan/date");
+    const rendered = {
+      ...value,
+      ...renderNotificationVariables(value, "Live Weather", "2026-11-03"),
+    };
+    expect(rendered.body.tr).toBe("Live Weather: 3 Kasım 2026");
+    expect(rendered.body.en).toBe("Live Weather: November 3, 2026");
+    expect(campaignErrors(rendered, true)).toEqual([]);
+    expect(
+      renderNotificationVariables(value, "", "bad-date").body.tr,
+    ).toContain("{date}");
+  });
   it("migrates legacy strings to English and writes precisely six supported locale keys", () => {
     expect(localeMap("Legacy title")).toEqual({
       en: "Legacy title",

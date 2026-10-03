@@ -75,6 +75,12 @@ Firestore rules grant admins read access to both.
 
 ## Notifications
 
+Open **Notifications → Send Notification** to send a message without creating a
+campaign first. **Templates** supports named, reusable manual templates (`manual_*`)
+with an **Edit template** and **Send Notification** action. The three plan reminders
+remain automatic; manual templates are disabled for automatic triggers. One-off
+messages still use the backend delivery queue and appear in campaign history.
+
 Open **Notifications** for plan reminder templates, campaign drafts and scheduling,
 global delivery settings, and delivery logs with 7/30-day summaries. The panel uses
 `notificationTemplates`, `notificationSettings/global`, `notificationCampaigns`,
@@ -87,7 +93,11 @@ Translation fills the other language tabs for review, shows loading and per-lang
 failures, and asks before replacing edited translations. Save explicitly after
 reviewing the previews. Every language must be complete before enabling a template
 or scheduling a campaign. Tests arrive in the receiving phone's app language;
-template tests use the saved template.
+tests use the current editor text and can run with only the source language filled.
+Reminder tests render sample variables; a real one-off send requires actual plan/date
+values. The editor footer always shows send/test actions and explains blockers.
+The account device check shows the signed-in email/UID and backend registration
+status; phone notification permission alone does not imply device registration.
 
 Campaigns always use `product_updates`. Scheduling fetches a fresh reachable audience
 count and asks for confirmation. Sending to all accounts also requires a successful

@@ -33,11 +33,101 @@ export interface NotificationContent {
   channel: "plan_reminders" | "product_updates";
 }
 export interface NotificationTemplate extends NotificationContent {
-  id: TemplateId;
+  id: string;
+  name?: string;
   enabled: boolean;
   trigger: string;
   params: { daysBefore?: number; sendHourLocal?: number };
   audience: { plans: NotificationPlan[]; excludeAdminGrant: boolean };
+}
+export function isManualTemplate(id: string): boolean {
+  return id.startsWith("manual_");
+}
+export function emptyManualTemplate(): NotificationTemplate {
+  const campaign = emptyCampaign();
+  return {
+    title: campaign.title,
+    body: campaign.body,
+    sourceLocale: campaign.sourceLocale,
+    imageUrl: "",
+    deepLink: campaign.deepLink,
+    channel: "product_updates",
+    id: `manual_${crypto.randomUUID()}`,
+    name: "",
+    enabled: false,
+    trigger: "manual",
+    params: {},
+    audience: { plans: [], excludeAdminGrant: false },
+  };
+}
+export function templateCampaign(
+  template: NotificationTemplate,
+  uid: string,
+): NotificationCampaign {
+  return {
+    ...emptyCampaign(),
+    title: { ...template.title },
+    body: { ...template.body },
+    sourceLocale: template.sourceLocale,
+    imageUrl: template.imageUrl,
+    deepLink: template.deepLink,
+    audience: { kind: "uids", uids: [uid] },
+  };
+}
+export function testContent(content: NotificationContent): NotificationContent {
+  return {
+    ...content,
+    title: Object.fromEntries(
+      LOCALES.filter(
+        (l) => content.title[l].trim() && content.body[l].trim(),
+      ).map((l) => [l, previewText(content.title[l], l)]),
+    ) as LocaleText,
+    body: Object.fromEntries(
+      LOCALES.filter(
+        (l) => content.title[l].trim() && content.body[l].trim(),
+      ).map((l) => [l, previewText(content.body[l], l)]),
+    ) as LocaleText,
+  };
+}
+export function testContentErrors(content: NotificationContent): string[] {
+  return [
+    ...contentErrors(content, false),
+    ...localeErrors(content, content.sourceLocale, true).map(
+      (e) => `${LANGUAGE_NAMES[content.sourceLocale]}: ${e}`,
+    ),
+  ];
+}
+export function renderNotificationVariables(
+  content: NotificationContent,
+  planName: string,
+  date: string,
+): NotificationContent {
+  const parsedDate = date ? new Date(`${date}T12:00:00Z`) : null;
+  const render = (text: string, locale: Locale) => {
+    const localizedDate =
+      parsedDate && !Number.isNaN(parsedDate.getTime())
+        ? new Intl.DateTimeFormat(locale, {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+            timeZone: "UTC",
+          }).format(parsedDate)
+        : "{date}";
+    return text
+      .split("{planName}")
+      .join(planName || "{planName}")
+      .split("{date}")
+      .join(localizedDate);
+  };
+  return {
+    ...content,
+    title: Object.fromEntries(
+      LOCALES.map((l) => [l, render(content.title[l], l)]),
+    ) as LocaleText,
+    body: Object.fromEntries(
+      LOCALES.map((l) => [l, render(content.body[l], l)]),
+    ) as LocaleText,
+  };
 }
 export interface NotificationSettings {
   enabled: boolean;
@@ -251,6 +341,12 @@ export function campaignErrors(
 ): string[] {
   return [
     ...contentErrors(campaign, schedule),
+    ...(schedule &&
+    LOCALES.some((l) => /\{[^{}]+\}/.test(campaign.title[l] + campaign.body[l]))
+      ? [
+          "One-off sends need actual plan/date values. Fill the message variables or replace the placeholders before sending.",
+        ]
+      : []),
     ...audienceErrors(campaign.audience),
     ...(schedule &&
     campaign.scheduledAt &&
