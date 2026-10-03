@@ -154,6 +154,11 @@ export function mapUser(id: string, data: RawDoc): AdminUser {
       ? (data.providers as string[])
       : [],
     testDevice: mapTestDevice(data.testDevice),
+    testAccountOverride: isRecord(data.testDevice) && typeof data.testDevice.manual === "boolean"
+      ? data.testDevice.manual : undefined,
+    testLabelCleared: isRecord(data.testDevice) && data.testDevice.suspected === false,
+    hasPurchase: bool(data.billingVerified) || !!data.planProductId ||
+      (num(data.standaloneWallpapersGranted) ?? 0) > 0,
   };
 }
 
@@ -910,6 +915,7 @@ export async function updateUserInFirestore(
      * `firebaseTestLab` and `detectedAt` survive. Never write the whole map.
      */
     "testDevice.suspected": false;
+    "testDevice.manual": boolean;
   }>,
   adminUid: string,
 ): Promise<boolean> {

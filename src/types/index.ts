@@ -73,12 +73,16 @@ export interface AdminUser {
   providers: string[];
   /** Test Lab label, or `null` for a real user. */
   testDevice: TestDeviceLabel | null;
+  testAccountOverride?: boolean;
+  testLabelCleared?: boolean;
+  hasPurchase?: boolean;
 }
 
 export interface GenerationRecord {
   id: string;
   uid: string;
   userEmail: string | null;
+  userDisplayName?: string | null;
   type: GenerationType;
   routingContext: RoutingContext | null;
   status: GenerationStatus;
@@ -310,6 +314,7 @@ export type AuditAction =
   | "USER_PLAN_UPDATED"
   | "USER_MARKED_FOR_REVIEW"
   | "USER_TEST_LABEL_CLEARED"
+  | "USER_TEST_LABEL_MARKED"
   | "NOTIFICATION_TEMPLATE_UPDATED"
   | "NOTIFICATION_SETTINGS_UPDATED"
   | "NOTIFICATION_CAMPAIGN_UPDATED"

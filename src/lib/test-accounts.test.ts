@@ -99,3 +99,23 @@ describe("demo data test label coverage", () => {
     expect(demoUsers.filter(isTestAccount).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+
+describe("automatic and manual decisions", () => {
+  const robot = { email: "marshallmonosz.72-834@gmail.com", createdAt: new Date("2026-10-01"), plan: "free" as const };
+  it("recognizes both Google robot suffix formats without a stored device flag", () => {
+    expect(testAccountKind(robot)).toBe("suspected");
+    expect(testAccountKind({ ...robot, email: "bethanymassey.76051@gmail.com" })).toBe("suspected");
+    expect(testAccountKind({ ...robot, email: "roykelley.2246@gmail.com" })).toBe("real");
+  });
+  it("keeps purchases, old accounts and cleared guesses out of automatic detection", () => {
+    expect(testAccountKind({ ...robot, hasPurchase: true })).toBe("real");
+    expect(testAccountKind({ ...robot, billingVerified: true })).toBe("real");
+    expect(testAccountKind({ ...robot, createdAt: new Date("2025-01-01") })).toBe("real");
+    expect(testAccountKind({ ...robot, testLabelCleared: true })).toBe("real");
+  });
+  it("honors manual decisions even for paid accounts and detected devices", () => {
+    expect(isTestAccount({ ...robot, plan: "live_weather", testAccountOverride: true })).toBe(true);
+    expect(testAccountKind({ ...robot, testDevice: device, testAccountOverride: false })).toBe("real");
+  });
+});

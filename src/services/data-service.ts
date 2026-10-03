@@ -98,7 +98,7 @@ export function mergeUserStats(
     if (g.type === "image") images.set(g.uid, (images.get(g.uid) ?? 0) + 1);
     else videos.set(g.uid, (videos.get(g.uid) ?? 0) + 1);
     if (g.status === "failed") failures.set(g.uid, (failures.get(g.uid) ?? 0) + 1);
-    const created = toDate(g.createdAt);
+    const created = latestDate(g.createdAt, g.startedAt, g.completedAt);
     if (created) {
       const current = lastGen.get(g.uid);
       if (!current || created > current) lastGen.set(g.uid, created);
@@ -118,22 +118,26 @@ export function mergeUserStats(
     videoGenerationCount: user.videoGenerationCount || videos.get(user.uid) || 0,
     failedGenerationCount:
       user.failedGenerationCount || failures.get(user.uid) || 0,
-    lastGenerationAt: user.lastGenerationAt ?? lastGen.get(user.uid) ?? null,
+    lastGenerationAt: latestDate(user.lastGenerationAt, lastGen.get(user.uid)),
+    lastActiveAt: latestDate(user.lastActiveAt, user.lastLoginAt, user.lastGenerationAt, lastGen.get(user.uid)),
     estimatedTotalCost:
       user.estimatedTotalCost || Number((cost.get(user.uid) ?? 0).toFixed(2)),
   }));
 }
 
+export function latestDate(...values: (Date | null | undefined)[]): Date | null {
+  const dates = values.map(value => toDate(value)).filter((value): value is Date =>
+    value !== null && Number.isFinite(value.getTime()));
+  return dates.length ? new Date(Math.max(...dates.map(value => value.getTime()))) : null;
+}
+
 export interface UserPatch {
+  markTestAccount?: true;
   disabled?: boolean;
   supportReview?: boolean;
   credits?: number;
   plan?: AdminUser["plan"];
-  /**
-   * Admin says a "likely test" guess was wrong. Writes only
-   * `testDevice.suspected = false` via a dotted path, so `firebaseTestLab`
-   * and `detectedAt` survive.
-   */
+  /** Clear the guess and persist an explicit real-account override using dotted paths. */
   clearTestLabel?: true;
 }
 
@@ -154,7 +158,10 @@ export async function updateUser(
     }
     if (patch.credits !== undefined) user.credits = patch.credits;
     if (patch.plan !== undefined) user.plan = patch.plan;
+    if (patch.markTestAccount) user.testAccountOverride = true;
     if (patch.clearTestLabel !== undefined) {
+      user.testAccountOverride = false;
+      user.testLabelCleared = true;
       // A device label is a fact and survives the clear, mirroring the live
       // dotted write; only a "likely test" guess turns into a real user.
       if (user.testDevice?.kind === "suspected") user.testDevice = null;
@@ -162,7 +169,7 @@ export async function updateUser(
     recordDemoAudit({
       adminUid: actor.uid,
       adminEmail: actor.email,
-      action: patch.clearTestLabel !== undefined
+      action: patch.markTestAccount ? "USER_TEST_LABEL_MARKED" : patch.clearTestLabel !== undefined
         ? "USER_TEST_LABEL_CLEARED"
         : patch.disabled !== undefined
           ? patch.disabled
@@ -191,8 +198,9 @@ export async function updateUser(
         ? { standaloneWallpapersGranted: patch.credits }
         : {}),
       ...(patch.plan !== undefined ? { plan: patch.plan } : {}),
+      ...(patch.markTestAccount ? { "testDevice.manual": true } : {}),
       ...(patch.clearTestLabel !== undefined
-        ? { "testDevice.suspected": false as const }
+        ? { "testDevice.suspected": false as const, "testDevice.manual": false }
         : {}),
     },
     actor.uid,
@@ -206,7 +214,7 @@ export async function updateUser(
     adminUid: actor.uid,
     adminEmail: actor.email,
     action:
-      patch.clearTestLabel !== undefined
+      patch.markTestAccount ? "USER_TEST_LABEL_MARKED" : patch.clearTestLabel !== undefined
         ? "USER_TEST_LABEL_CLEARED"
         : patch.disabled !== undefined
           ? patch.disabled

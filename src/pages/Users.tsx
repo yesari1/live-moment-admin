@@ -81,9 +81,9 @@ type StatusFilter = AdminUser["status"] | "all";
 export function UsersPage() {
   const [searchParams] = useSearchParams();
   const { user: actor, getIdToken } = useAuth();
-  const usersQuery = useAsyncData(fetchUsers);
-  const generationsQuery = useAsyncData(fetchGenerations);
-  const usageQuery = useAsyncData(fetchUsage);
+  const usersQuery = useAsyncData(fetchUsers, [], { pollIntervalMs: 10000 });
+  const generationsQuery = useAsyncData(fetchGenerations, [], { pollIntervalMs: 10000 });
+  const usageQuery = useAsyncData(fetchUsage, [], { pollIntervalMs: 10000 });
 
   const [planFilter, setPlanFilter] = React.useState<PlanFilter>("all");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
@@ -174,7 +174,7 @@ export function UsersPage() {
         cell: ({ row }) => (
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">
-              {row.original.email ?? "—"}
+              {row.original.email ?? "â€”"}
             </p>
             <TestAccountBadge
               kind={testAccountKind(row.original)}
@@ -284,7 +284,12 @@ export function UsersPage() {
                   )}
                   {row.original.status === "disabled" ? "Enable" : "Disable"}
                 </DropdownMenuItem>
-                {testAccountKind(row.original) === "suspected" && (
+                <DropdownMenuItem onClick={() => void handlePatchFor(
+                  row.original, { markTestAccount: true }, "Marked as a test account.", actor, usersQuery.refresh,
+                )}>
+                  <ShieldAlert className="h-4 w-4" /> Mark as test account
+                </DropdownMenuItem>
+                {testAccountKind(row.original) !== "real" && (
                   <DropdownMenuItem
                     onClick={() =>
                       void handlePatchFor(
@@ -360,9 +365,9 @@ export function UsersPage() {
         columns={columns}
         data={filtered}
         loading={loading}
-        searchPlaceholder="Search by email or user ID…"
+        searchPlaceholder="Search by email or user IDâ€¦"
         emptyTitle="No users match these filters"
-        emptyDescription="Try clearing the plan or status filters, or adjusting your search. Test accounts are hidden by default — choose All users or Test devices to see them."
+        emptyDescription="Try clearing the plan or status filters, or adjusting your search. Test accounts are hidden by default â€” choose All users or Test devices to see them."
         getRowId={(row) => row.uid}
         onRowClick={(row) => setSelectedUid(row.uid)}
         toolbar={
@@ -490,7 +495,7 @@ function UserDetailDrawer({
   onChanged: () => Promise<void>;
   onRequestDelete: (user: AdminUser) => void;
 }) {
-  const generations = useAsyncData(fetchGenerations);
+  const generations = useAsyncData(fetchGenerations, [], { pollIntervalMs: 10000 });
   const [creditsInput, setCreditsInput] = React.useState("");
 
   React.useEffect(() => {
@@ -534,7 +539,7 @@ function UserDetailDrawer({
             <AccountStatusBadge status={user.status} />
           </SheetTitle>
           <SheetDescription>
-            UID {user.uid} · registered {formatDate(user.createdAt)}
+            UID {user.uid} Â· registered {formatDate(user.createdAt)}
           </SheetDescription>
         </SheetHeader>
 
@@ -606,7 +611,7 @@ function UserDetailDrawer({
               />
               <Detail
                 label="Providers"
-                value={user.providers.join(", ") || "—"}
+                value={user.providers.join(", ") || "â€”"}
               />
             </div>
 
@@ -651,7 +656,12 @@ function UserDetailDrawer({
                 >
                   <ShieldAlert className="h-4 w-4" /> Mark for review
                 </Button>
-                {testAccountKind(user) === "suspected" && (
+                <Button variant="outline" size="sm" onClick={() => void patch(
+                  { markTestAccount: true }, "Marked as a test account.",
+                )}>
+                  <ShieldAlert className="h-4 w-4" /> Mark as test account
+                </Button>
+                {testAccountKind(user) !== "real" && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -685,12 +695,12 @@ function UserDetailDrawer({
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm">
-                      {g.type === "image" ? "Image" : "Video"} ·{" "}
+                      {g.type === "image" ? "Image" : "Video"} Â·{" "}
                       {g.model ?? "unknown"}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {formatDateTime(g.createdAt)} ·{" "}
-                      {g.durationMs ? `${(g.durationMs / 1000).toFixed(1)}s` : "—"}
+                      {formatDateTime(g.createdAt)} Â·{" "}
+                      {g.durationMs ? `${(g.durationMs / 1000).toFixed(1)}s` : "â€”"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -760,7 +770,7 @@ function UserDetailDrawer({
                     {g.errorMessage ?? "No additional detail available."}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {formatDateTime(g.createdAt)} · retries {g.retryCount}
+                    {formatDateTime(g.createdAt)} Â· retries {g.retryCount}
                   </p>
                 </div>
               ))

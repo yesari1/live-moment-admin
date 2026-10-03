@@ -36,6 +36,7 @@ import {
   type NotificationSettings,
 } from "@/lib/notifications";
 import {
+  dispatchNotificationCampaign,
   notificationError,
   previewAudience,
   saveNotificationCampaign,
@@ -191,7 +192,24 @@ export function CampaignEditor({
     if (status === "scheduled" && step !== 2) return;
     setBusy(true);
     try {
-      await saveNotificationCampaign(notification, status, user);
+      const token = status === "scheduled" && timing === "now" ? await getToken() : null;
+      const id = await saveNotificationCampaign(notification, status, user);
+      if (token) {
+        try {
+          const result = await dispatchNotificationCampaign(token, id);
+          const notify = result.status === "failed" || (result.status === "sent" && result.stats.sent === 0)
+            ? toast.warning : toast.success;
+          notify(result.status === "failed" ? "Delivery failed" : result.status === "sent" ? "Processing completed" : "Delivery started", {
+            description: `Accepted by FCM: ${result.stats.sent}; deferred: ${result.stats.deferred}; skipped: ${result.stats.skipped}; failed: ${result.stats.failed}.`,
+          });
+        } catch (e) {
+          toast.warning("Notification saved; immediate dispatch could not be confirmed", {
+            description: `${notificationError(e)} The saved notification remains in History; check its status before retrying.`,
+          });
+        }
+        onClose();
+        return;
+      }
       toast.success(
         status === "draft"
           ? "Draft saved"
@@ -201,7 +219,7 @@ export function CampaignEditor({
         {
           description:
             status === "scheduled" && timing === "now"
-              ? "Delivery will begin within 10 minutes."
+              ? "Delivery starts immediately; quiet hours and daily limits still apply."
               : undefined,
         },
       );

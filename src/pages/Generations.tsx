@@ -34,7 +34,7 @@ import {
 import { DateRangeFilter, resolveDateRange } from "@/components/shared/date-range-filter";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useModelCatalog } from "@/hooks/use-model-catalog";
-import { fetchGenerationsWithCost } from "@/services/data-service";
+import { fetchUsers, fetchGenerationsWithCost } from "@/services/data-service";
 import {
   formatCost,
   formatDateTime,
@@ -64,6 +64,15 @@ export function GenerationsPage() {
   // itself current. Polls are silent and pause on a hidden tab, so the table
   // never flickers and an idle console costs no reads.
   const query = useAsyncData(fetchGenerationsWithCost, [], { pollIntervalMs: 3000 });
+  const usersQuery = useAsyncData(fetchUsers, [], { pollIntervalMs: 30000 });
+  const records = React.useMemo(() => {
+    const byUid = new Map((usersQuery.data ?? []).map(user => [user.uid, user]));
+    return (query.data ?? []).map(generation => ({
+      ...generation,
+      userEmail: generation.userEmail || byUid.get(generation.uid)?.email || null,
+      userDisplayName: byUid.get(generation.uid)?.displayName ?? null,
+    }));
+  }, [query.data, usersQuery.data]);
   const [typeFilter, setTypeFilter] = React.useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
   const [providerFilter, setProviderFilter] = React.useState("all");
@@ -77,17 +86,17 @@ export function GenerationsPage() {
 
   const providers = React.useMemo(
     () =>
-      [...new Set((query.data ?? []).map((g) => g.actualProvider ?? g.provider))]
+      [...new Set(records.map((g) => g.actualProvider ?? g.provider))]
         .filter(Boolean)
         .sort() as string[],
-    [query.data],
+    [records],
   );
 
   const filtered = React.useMemo(() => {
     const { from, to } = resolveDateRange(range);
     const start = from?.getTime() ?? 0;
     const end = to?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    return (query.data ?? []).filter((g) => {
+    return records.filter((g) => {
       if (typeFilter !== "all" && g.type !== typeFilter) return false;
       if (statusFilter !== "all" && g.status !== statusFilter) return false;
       if (
@@ -99,7 +108,7 @@ export function GenerationsPage() {
       const t = g.createdAt?.getTime() ?? 0;
       return t >= start && t <= end;
     });
-  }, [query.data, typeFilter, statusFilter, providerFilter, fallbackOnly, range]);
+  }, [records, typeFilter, statusFilter, providerFilter, fallbackOnly, range]);
 
   const totals = React.useMemo(() => {
     const cost = filtered.reduce((sum, g) => sum + (g.estimatedCost ?? 0), 0);
@@ -119,12 +128,16 @@ export function GenerationsPage() {
         ),
       },
       {
-        accessorKey: "userEmail",
+        id: "user",
+        accessorFn: (g) => `${g.userDisplayName ?? ""} ${g.userEmail ?? ""} ${g.uid}`,
         header: "User",
         cell: ({ row }) => (
-          <span className="truncate text-sm">
-            {row.original.userEmail ?? row.original.uid}
-          </span>
+          <div className="min-w-0" title={row.original.uid}>
+            <p className="truncate text-sm">{row.original.userDisplayName || row.original.userEmail || row.original.uid}</p>
+            {row.original.userDisplayName && row.original.userEmail && (
+              <p className="truncate text-xs text-muted-foreground">{row.original.userEmail}</p>
+            )}
+          </div>
         ),
       },
       {
@@ -200,14 +213,14 @@ export function GenerationsPage() {
     [],
   );
 
-  if (query.error) {
+  if (query.error || usersQuery.error) {
     return (
       <div className="space-y-6">
         <PageHeader
           title="Generations"
           description="Operational history of every AI generation job."
         />
-        <ErrorState message={query.error} onRetry={query.refresh} />
+        <ErrorState message={query.error ?? usersQuery.error ?? "Could not load users"} onRetry={() => { void query.refresh(); void usersQuery.refresh(); }} />
       </div>
     );
   }
@@ -350,7 +363,7 @@ function GenerationDetailDrawer({
           </SheetTitle>
           <SheetDescription>
             {generation.type === "image" ? "Image" : "Video"} generation ·{" "}
-            {generation.userEmail ?? generation.uid}
+            {generation.userDisplayName || generation.userEmail || generation.uid}
           </SheetDescription>
         </SheetHeader>
 
@@ -374,7 +387,7 @@ function GenerationDetailDrawer({
           <div className="grid grid-cols-2 gap-3">
             <Detail label="Type" value={generation.type} />
             <Detail label="Context" value={generation.routingContext ?? "—"} />
-            <Detail label="User" value={generation.userEmail ?? generation.uid} />
+            <Detail label="User" value={generation.userDisplayName || generation.userEmail || generation.uid} />
             <Detail label="Template" value={generation.presetId ?? "—"} />
             <Detail
               label="Primary provider"

@@ -136,6 +136,11 @@ export function sendNotificationTest(
     },
   });
 }
+export function dispatchNotificationCampaign(token: string, campaignId: string): Promise<{
+  id: string; status: CampaignStatus; stats: NotificationCampaign["stats"];
+}> {
+  return post("dispatch", token, { campaignId });
+}
 function database(): Firestore {
   const db = useDemoData ? null : getDb();
   if (!db)
@@ -230,6 +235,7 @@ export function watchCampaigns(
             status: data.status,
             stats: { ...ZERO_STATS, ...data.stats },
             lastError: data.lastError,
+            deliveryReasons: data.deliveryReasons ?? {},
           } as NotificationCampaign;
         }),
       ),

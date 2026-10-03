@@ -127,6 +127,11 @@ const testAccountStyles: Record<
   Exclude<TestAccountKind, "real">,
   { variant: "warning" | "muted"; label: string; title: string }
 > = {
+  manual: {
+    variant: "warning",
+    label: "Test account",
+    title: "Marked as a test account by an administrator",
+  },
   device: {
     variant: "warning",
     label: "Test device",

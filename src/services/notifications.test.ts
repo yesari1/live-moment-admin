@@ -28,6 +28,7 @@ vi.mock("firebase/firestore", async (importOriginal) => ({
   ) => action(firestore),
 }));
 import {
+  dispatchNotificationCampaign,
   notificationError,
   previewAudience,
   saveNotificationCampaign,
@@ -241,4 +242,14 @@ describe("transactional campaign ownership", () => {
     ).rejects.toThrow("status changed");
     expect(firestore.update).not.toHaveBeenCalled();
   });
+});
+
+
+it("dispatches only the saved campaign through the authenticated backend", async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "c1", status: "sent", stats: {} })));
+  vi.stubGlobal("fetch", fetch);
+  await dispatchNotificationCampaign("token", "c1");
+  expect(fetch).toHaveBeenCalledWith("https://backend.example/v1/admin/notifications/dispatch", expect.objectContaining({
+    method: "POST", body: JSON.stringify({ campaignId: "c1" }), headers: expect.objectContaining({ Authorization: "Bearer token" }),
+  }));
 });

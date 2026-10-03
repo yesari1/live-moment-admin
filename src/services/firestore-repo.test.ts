@@ -4,9 +4,10 @@ import {
   mapAiModel,
   mapFeedback,
   mapUser,
+  mapGeneration,
   normalizeStatus,
 } from "@/services/firestore-repo";
-import { sumEventCost } from "@/services/data-service";
+import { mergeUserStats, sumEventCost } from "@/services/data-service";
 import type { UsageEvent } from "@/types";
 
 function usageEvent(partial: Partial<UsageEvent>): UsageEvent {
@@ -229,5 +230,24 @@ describe("normalizeStatus", () => {
     expect(normalizeStatus("generating")).toBe("processing");
     expect(normalizeStatus("draft")).toBe("queued");
     expect(normalizeStatus("expired")).toBe("cancelled");
+  });
+});
+
+
+describe("user activity from generation history", () => {
+  it("advances stale activity and last generation to the newest completion", () => {
+    const user = mapUser("alice", { lastLoginAt: new Date(1000), lastActiveAt: new Date(2000), lastGenerationAt: new Date(3000) });
+    const generation = mapGeneration("g", { uid: "alice", type: "image", createdAt: new Date(4000), completedAt: new Date(5000), status: "ready" });
+    const [result] = mergeUserStats([user], [generation], []);
+    expect(result.lastActiveAt?.getTime()).toBe(5000);
+    expect(result.lastGenerationAt?.getTime()).toBe(5000);
+    const [laterLogin] = mergeUserStats([{ ...user, lastLoginAt: new Date(6000) }], [generation], []);
+    expect(laterLogin.lastActiveAt?.getTime()).toBe(6000);
+  });
+  it("maps persistent manual decisions without removing device evidence", () => {
+    const user = mapUser("alice", { testDevice: { manual: false, suspected: false, firebaseTestLab: true } });
+    expect(user.testAccountOverride).toBe(false);
+    expect(user.testLabelCleared).toBe(true);
+    expect(user.testDevice?.kind).toBe("device");
   });
 });

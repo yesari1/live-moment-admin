@@ -166,6 +166,7 @@ export interface NotificationCampaign extends NotificationContent {
   stats: CampaignStats;
   createdAt: Date | null;
   lastError?: string;
+  deliveryReasons?: Record<string, number>;
 }
 export interface NotificationLogEntry {
   id: string;

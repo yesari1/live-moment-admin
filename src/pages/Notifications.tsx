@@ -692,7 +692,7 @@ function CampaignList({
                 >
                   {c.status === "scheduled" && !c.scheduledAt
                     ? "Queued"
-                    : c.status[0].toUpperCase() + c.status.slice(1)}
+                    : c.status === "sent" ? "Processed" : c.status[0].toUpperCase() + c.status.slice(1)}
                 </Badge>
               </div>
               <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
@@ -732,6 +732,12 @@ function CampaignList({
             </div>
           </div>
           {c.status !== "draft" && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              FCM accepted: {c.stats.sent} · Deferred: {c.stats.deferred} · Skipped: {c.stats.skipped} · Failed: {c.stats.failed}.
+              {" "}FCM acceptance does not confirm display on the phone. Tests bypass quiet hours and the daily limit.
+            </p>
+          )}
+          {c.status !== "draft" && (
             <details className="mt-4 border-t pt-3">
               <summary className="cursor-pointer text-xs text-muted-foreground">
                 Delivery details
@@ -743,6 +749,11 @@ function CampaignList({
                   </span>
                 ))}
               </div>
+              {Object.entries(c.deliveryReasons ?? {}).map(([reason, count]) => (
+                <p key={reason} className="mt-2 text-xs text-muted-foreground">
+                  {({ capped: "Daily limit reached", no_devices: "No matching registered phone", deferred: "Deferred during quiet hours", invalid_content: "Invalid message", disabled: "Sending paused", failed: "FCM rejected", sent: "FCM accepted" } as Record<string, string>)[reason] ?? reason}: {count}
+                </p>
+              ))}
               {c.lastError && (
                 <p className="mt-3 text-xs text-destructive">{c.lastError}</p>
               )}
