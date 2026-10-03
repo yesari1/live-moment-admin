@@ -73,6 +73,36 @@ Firestore rules grant admins read access to both.
 `ai_routing`, `ai_models`, `plans`, `pricingConfigs`, `feedback`,
 `admin_config`, `admin_audit_logs`, `admin_error_logs`.
 
+## Notifications
+
+Open **Notifications** for plan reminder templates, campaign drafts and scheduling,
+global delivery settings, and delivery logs with 7/30-day summaries. The panel uses
+`notificationTemplates`, `notificationSettings/global`, `notificationCampaigns`,
+and the read-only `notificationLog` collection. Notification rules and the three
+seeded templates are managed by the app/backend repository; do not deploy the
+older example rules in this repository over the backend's deployed rules.
+
+Compose in Turkish (default), English, or any of the six supported source languages.
+Translation fills the other language tabs for review, shows loading and per-language
+failures, and asks before replacing edited translations. Save explicitly after
+reviewing the previews. Every language must be complete before enabling a template
+or scheduling a campaign. Tests arrive in the receiving phone's app language;
+template tests use the saved template.
+
+Campaigns always use `product_updates`. Scheduling fetches a fresh reachable audience
+count and asks for confirmation. Sending to all accounts also requires a successful
+test for the exact content in this page session and typing `SEND`. Global delivery
+must be enabled; test sends bypass global delivery, quiet hours, and the daily cap.
+The backend dispatcher starts due campaigns within its next 10-minute run.
+Campaigns that have started can be cancelled at the next batch or duplicated, but
+cannot be edited. Notification changes append an audit record in the same Firestore
+transaction, and backend-owned stats/lease fields are preserved.
+
+After deployment, verify real delivery with your own account UID: translate a short
+message, send a test, and schedule a campaign targeting only that UID. Check the
+phone, campaign stats, and delivery log after the dispatcher run. Browser previews
+and automated tests alone cannot verify FCM/device delivery.
+
 ## Security
 
 The browser uses the Firebase Web SDK only for authentication and admin-permitted

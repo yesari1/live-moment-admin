@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bell,
   FileText,
   LayoutDashboard,
   Layers,
@@ -54,6 +55,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Templates",
     icon: Layers,
     description: "Manage generation templates remotely.",
+  },
+  {
+    to: "/notifications",
+    label: "Notifications",
+    icon: Bell,
+    description: "Multilingual reminders, campaigns and delivery insights.",
   },
   {
     to: "/app-settings",

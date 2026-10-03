@@ -17,6 +17,7 @@ import { AppSettingsPage } from "@/pages/AppSettings";
 import { FeedbackPage } from "@/pages/Feedback";
 import { LogsPage } from "@/pages/Logs";
 import { NotFoundPage } from "@/pages/NotFound";
+import { NotificationsPage } from "@/pages/Notifications";
 
 function ProtectedRoutes() {
   const { status } = useAuth();
@@ -46,6 +47,7 @@ function AppRoutes() {
         <Route path="/ai-routing" element={<AIRoutingPage />} />
         <Route path="/plans" element={<PlansPage />} />
         <Route path="/templates" element={<TemplatesPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/app-settings" element={<AppSettingsPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
         <Route path="/logs" element={<LogsPage />} />

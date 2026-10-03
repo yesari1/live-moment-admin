@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useSearchParams } from "react-router-dom";
 import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
 import {
@@ -78,6 +79,7 @@ type PlanFilter = AccountPlan | "all";
 type StatusFilter = AdminUser["status"] | "all";
 
 export function UsersPage() {
+  const [searchParams] = useSearchParams();
   const { user: actor, getIdToken } = useAuth();
   const usersQuery = useAsyncData(fetchUsers);
   const generationsQuery = useAsyncData(fetchGenerations);
@@ -88,6 +90,10 @@ export function UsersPage() {
   const [testFilter, setTestFilter] =
     React.useState<TestAccountFilter>("real");
   const [selectedUid, setSelectedUid] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const uid = searchParams.get("uid");
+    if (uid) setSelectedUid(uid);
+  }, [searchParams]);
   const [pending, setPending] = React.useState<AdminUser | null>(null);
   const [deleting, setDeleting] = React.useState(false);
 

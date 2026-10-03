@@ -11,7 +11,7 @@ export class BackendError extends Error {
   }
 }
 
-async function adminFetch(
+export async function adminFetch(
   path: string,
   idToken: string,
   init?: RequestInit,
@@ -31,9 +31,15 @@ async function adminFetch(
     let code: string | undefined;
     let message = `Request failed with status ${response.status}.`;
     try {
-      const body = (await response.json()) as { code?: string; message?: string; error?: string };
-      code = body.code;
-      message = body.message ?? body.error ?? message;
+      const body = (await response.json()) as {
+        code?: string;
+        message?: string;
+        error?: string | { code?: string; message?: string };
+      };
+      const nested = typeof body.error === "object" ? body.error : undefined;
+      code = nested?.code ?? body.code;
+      message = nested?.message ?? body.message ??
+        (typeof body.error === "string" ? body.error : message);
     } catch {
       // Non-JSON error body; keep the generic message.
     }
