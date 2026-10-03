@@ -7,7 +7,6 @@ import {
   FileText,
   Loader2,
   Plus,
-  Radio,
   Save,
   Send,
   Settings2,
@@ -19,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -37,10 +36,8 @@ import {
 } from "@/components/notifications/content-editor";
 import { CampaignEditor } from "@/components/notifications/campaign-editor";
 import { ManualTemplateEditor } from "@/components/notifications/manual-template-editor";
-import {
-  DeviceStatus,
-  TestResults,
-} from "@/components/notifications/device-status";
+import { DeviceStatus } from "@/components/notifications/device-status";
+import { TestNotificationButton } from "@/components/notifications/test-notification-button";
 import { useAuth } from "@/hooks/use-auth";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -56,8 +53,6 @@ import {
   emptyManualTemplate,
   isManualTemplate,
   templateCampaign,
-  testContent,
-  testContentErrors,
   parseUids,
   settingsErrors,
   type NotificationCampaign,
@@ -70,31 +65,36 @@ import {
   notificationError,
   saveNotificationSettings,
   saveNotificationTemplate,
-  sendNotificationTest,
   transitionNotificationCampaign,
   watchCampaigns,
   watchSettings,
   watchTemplates,
 } from "@/services/notifications";
-
 export function Busy({ text = "Loading…" }: { text?: string }) {
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
       <Loader2 className="h-4 w-4 animate-spin" />
       {text}
     </span>
   );
 }
-export function TestOutcomes({
-  results,
-}: {
-  results: React.ComponentProps<typeof TestResults>["results"];
-}) {
-  return <TestResults results={results} />;
-}
+const REMINDERS = {
+  plan_ending_soon: {
+    name: "Before a plan expires",
+    description: "Remind subscribers while their plan is still active.",
+  },
+  plan_ended: {
+    name: "When a plan expires",
+    description: "Let subscribers know their plan has ended.",
+  },
+  plan_renewed: {
+    name: "When a plan renews",
+    description: "Confirm that their plan has been renewed.",
+  },
+};
 export function NotificationsPage() {
   const { user, getIdToken, demoMode } = useAuth();
-  const [tab, setTab] = React.useState("send");
+  const [tab, setTab] = React.useState("history");
   const [templates, setTemplates] = React.useState<NotificationTemplate[]>([]);
   const [settings, setSettings] =
     React.useState<NotificationSettings>(DEFAULT_SETTINGS);
@@ -107,20 +107,17 @@ export function NotificationsPage() {
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [retry, setRetry] = React.useState(0);
   const [editor, setEditor] = React.useState<NotificationCampaign | null>(null);
-  const [editorMode, setEditorMode] = React.useState<"campaign" | "send">(
-    "campaign",
-  );
-  const testedContent = React.useRef(new Set<string>());
+  const [logsOpen, setLogsOpen] = React.useState(false);
   React.useEffect(() => {
     if (demoMode) return;
     setErrors({});
     const unsubs: (() => void)[] = [];
     for (const key of ["templates", "settings", "campaigns"] as const) {
       const fail = (e: Error) =>
-        setErrors((prev) => ({ ...prev, [key]: notificationError(e) }));
+        setErrors((p) => ({ ...p, [key]: notificationError(e) }));
       const done = () => {
-        setReady((prev) => ({ ...prev, [key]: true }));
-        setErrors((prev) => ({ ...prev, [key]: "" }));
+        setReady((p) => ({ ...p, [key]: true }));
+        setErrors((p) => ({ ...p, [key]: "" }));
       };
       try {
         if (key === "templates")
@@ -151,12 +148,14 @@ export function NotificationsPage() {
     return () => unsubs.forEach((stop) => stop());
   }, [demoMode, retry]);
   async function token() {
-    const value = await getIdToken();
-    if (!value) throw new Error("A live Firebase admin session is required.");
-    return value;
+    const token = await getIdToken();
+    if (!token) throw new Error("Sign in again to continue.");
+    return token;
+  }
+  function create() {
+    setEditor({ ...emptyCampaign(), audience: { kind: "all" } });
   }
   function duplicate(c: NotificationCampaign) {
-    setEditorMode("send");
     setEditor({
       ...c,
       id: "",
@@ -168,195 +167,133 @@ export function NotificationsPage() {
       lastError: undefined,
     });
   }
-  function sendTemplate(template: NotificationTemplate) {
-    if (!user) return;
-    setEditorMode("send");
-    setEditor(templateCampaign(template, user.uid));
+  function sendTemplate(t: NotificationTemplate) {
+    if (user)
+      setEditor({
+        ...templateCampaign(t, user.uid),
+        audience: { kind: "all" },
+      });
   }
-  function quickSend() {
-    if (!user) return;
-    setEditorMode("send");
-    setEditor({
-      ...emptyCampaign(),
-      audience: { kind: "uids", uids: [user.uid] },
-    });
+  function connection(
+    key: "templates" | "settings" | "campaigns",
+    content: React.ReactNode,
+  ) {
+    return errors[key] ? (
+      <div className="space-y-3">
+        <Notice danger>{errors[key]}</Notice>
+        <Button variant="outline" onClick={() => setRetry((n) => n + 1)}>
+          Try again
+        </Button>
+      </div>
+    ) : ready[key] ? (
+      content
+    ) : (
+      <Busy />
+    );
   }
   return (
     <div className="space-y-6">
       <PageHeader
         title="Notifications"
-        description="Thoughtful messages, in every language. Manage plan reminders and product campaigns."
+        description="Send a message now, schedule it for later, or set up automatic reminders."
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={quickSend} disabled={demoMode}>
-              <Send />
-              Send Notification
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setTab("campaigns");
-                setEditorMode("campaign");
-                setEditor(emptyCampaign());
-              }}
-              disabled={demoMode || !ready.settings}
-            >
-              <Plus />
-              New campaign
-            </Button>
-          </div>
+          <Button onClick={create} disabled={demoMode}>
+            <Plus />
+            New notification
+          </Button>
         }
       />
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-gradient-to-r from-primary/10 to-transparent p-4">
-        <div className="flex items-center gap-3">
-          <span className="rounded-xl bg-primary/10 p-3">
-            <Bell className="h-5 w-5 text-primary" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold">
-              {ready.settings
-                ? settings.enabled
-                  ? "Notifications are live"
-                  : "Notifications are paused"
-                : "Connecting to notification settings"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {settings.enabled
-                ? "The backend sends scheduled campaigns and automated reminders."
-                : "Enable global delivery in Settings. Test sends still work while paused."}
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setTab("settings")}>
-          <Settings2 />
-          Settings
-        </Button>
-      </div>
       {demoMode ? (
-        <Notice>
-          Notifications need live Firebase data. Demo mode cannot save changes
-          or send messages.
-        </Notice>
+        <Notice>Sign in to create and send notifications.</Notice>
       ) : (
         <>
-          {!!errors.settings && (
-            <Notice danger>
-              Settings could not load: {errors.settings}. Sending is disabled.
-            </Notice>
-          )}
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="h-auto flex-wrap justify-start gap-1">
-              <TabsTrigger value="send" className="gap-2">
-                <Send className="h-4 w-4" />
-                Send Notification
-              </TabsTrigger>
-              <TabsTrigger value="templates" className="gap-2">
-                <FileText className="h-4 w-4" />
-                Templates
-              </TabsTrigger>
-              <TabsTrigger value="campaigns" className="gap-2">
-                <Send className="h-4 w-4" />
-                Campaigns
-              </TabsTrigger>
-              <TabsTrigger value="settings" className="gap-2">
-                <Settings2 className="h-4 w-4" />
-                Settings
-              </TabsTrigger>
-              <TabsTrigger value="log" className="gap-2">
-                <Radio className="h-4 w-4" />
-                Log / stats
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="send" className="mt-5 space-y-5">
-              <div className="rounded-xl border bg-gradient-to-br from-primary/10 to-card p-6">
-                <h2 className="text-lg font-semibold">
-                  Send a notification whenever you want
-                </h2>
-                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                  Write a message or use a saved template, choose who receives
-                  it and send. You don’t need to create a campaign or save a
-                  draft first.
-                </p>
-                <div className="mt-5 flex flex-wrap gap-3">
-                  <Button onClick={quickSend}>
-                    <Send />
-                    Send Notification
-                  </Button>
-                  <Button variant="outline" onClick={() => setTab("templates")}>
-                    <FileText />
-                    Choose a template
-                  </Button>
-                </div>
-                <p className="mt-4 text-xs text-muted-foreground">
-                  Tests send immediately. Real notifications enter the backend
-                  delivery queue and start within the next 10-minute run; quiet
-                  hours and the daily cap still apply.
-                </p>
-              </div>
-              <DeviceStatus getToken={token} />
-            </TabsContent>
-            {(["templates", "settings", "campaigns"] as const).map((key) =>
-              errors[key] ? (
-                <TabsContent key={key} value={key}>
-                  <Notice danger>{errors[key]}</Notice>
-                  <Button
-                    className="mt-3"
-                    variant="outline"
-                    onClick={() => setRetry((n) => n + 1)}
-                  >
-                    Retry connection
-                  </Button>
-                </TabsContent>
-              ) : null,
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+            <Tabs value={tab} onValueChange={setTab}>
+              <TabsList className="h-auto flex-wrap justify-start">
+                <TabsTrigger value="history">
+                  <Bell className="mr-2 h-4 w-4" />
+                  History
+                </TabsTrigger>
+                <TabsTrigger value="templates">
+                  <FileText className="mr-2 h-4 w-4" />
+                  Templates
+                </TabsTrigger>
+                <TabsTrigger value="reminders">
+                  <CalendarClock className="mr-2 h-4 w-4" />
+                  Automatic reminders
+                </TabsTrigger>
+                <TabsTrigger value="settings">
+                  <Settings2 className="mr-2 h-4 w-4" />
+                  Settings
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {ready.settings && !settings.enabled && (
+              <button
+                className="text-xs text-muted-foreground hover:text-primary"
+                onClick={() => setTab("settings")}
+              >
+                Sending paused · Settings
+              </button>
             )}
-            <TabsContent value="templates" className="mt-5">
-              {!errors.templates &&
-                (ready.templates ? (
-                  <TemplateList
-                    templates={templates}
-                    getToken={token}
-                    onSend={sendTemplate}
-                  />
-                ) : (
-                  <Busy />
-                ))}
-            </TabsContent>
-            <TabsContent value="settings" className="mt-5">
-              {!errors.settings &&
-                (ready.settings ? (
-                  <SettingsPanel settings={settings} />
-                ) : (
-                  <Busy />
-                ))}
-            </TabsContent>
-            <TabsContent value="campaigns" className="mt-5">
-              {!errors.campaigns &&
-                (ready.campaigns ? (
-                  <CampaignList
-                    campaigns={campaigns}
-                    edit={(c) => {
-                      setEditorMode("campaign");
-                      setEditor(c);
-                    }}
-                    duplicate={duplicate}
-                  />
-                ) : (
-                  <Busy />
-                ))}
-            </TabsContent>
-            <TabsContent value="log" className="mt-5">
-              <LogPanel campaigns={campaigns} />
-            </TabsContent>
-          </Tabs>
+          </div>
+          {tab === "history" &&
+            connection(
+              "campaigns",
+              <div className="space-y-8">
+                <CampaignList
+                  campaigns={campaigns}
+                  edit={setEditor}
+                  duplicate={duplicate}
+                />
+                <details
+                  className="rounded-xl border p-4"
+                  onToggle={(e) => setLogsOpen(e.currentTarget.open)}
+                >
+                  <summary className="cursor-pointer text-sm text-muted-foreground">
+                    Delivery details & logs
+                  </summary>
+                  {logsOpen && (
+                    <div className="mt-5">
+                      <LogPanel campaigns={campaigns} />
+                    </div>
+                  )}
+                </details>
+              </div>,
+            )}
+          {(tab === "templates" || tab === "reminders") &&
+            connection(
+              "templates",
+              <TemplateList
+                key={tab}
+                templates={templates}
+                getToken={token}
+                onSend={sendTemplate}
+                reminders={tab === "reminders"}
+              />,
+            )}
+          {tab === "settings" &&
+            connection(
+              "settings",
+              <div className="space-y-6">
+                <SettingsPanel settings={settings} />
+                <details className="max-w-3xl rounded-xl border p-4">
+                  <summary className="cursor-pointer text-sm text-muted-foreground">
+                    My phone registration
+                  </summary>
+                  <div className="mt-4">
+                    <DeviceStatus getToken={token} />
+                  </div>
+                </details>
+              </div>,
+            )}
           {editor && (
             <CampaignEditor
               key={editor.id || "new"}
               initial={editor}
-              mode={editorMode}
               settings={settings}
               settingsReady={ready.settings && !errors.settings}
               getToken={token}
-              testedContent={testedContent.current}
               onClose={() => setEditor(null)}
               onSettings={() => {
                 setEditor(null);
@@ -370,186 +307,140 @@ export function NotificationsPage() {
     </div>
   );
 }
-
 function TemplateList({
   templates,
   getToken,
   onSend,
+  reminders,
 }: {
   templates: NotificationTemplate[];
   getToken: () => Promise<string>;
-  onSend: (template: NotificationTemplate) => void;
+  onSend: (t: NotificationTemplate) => void;
+  reminders: boolean;
 }) {
   const { user } = useAuth();
   const [editor, setEditor] = React.useState<NotificationTemplate | null>(null);
-  const [toggling, setToggling] = React.useState<string | null>(null);
-  const [manualEditor, setManualEditor] =
-    React.useState<NotificationTemplate | null>(null);
-  async function toggle(template: NotificationTemplate, enabled: boolean) {
+  const [busy, setBusy] = React.useState(false);
+  async function toggle(t: NotificationTemplate, enabled: boolean) {
     if (!user) return;
-    setToggling(template.id);
+    setBusy(true);
     try {
       await saveNotificationTemplate(
         {
-          ...template,
+          ...t,
           enabled,
           channel: "plan_reminders",
           params:
-            template.id === "plan_ending_soon"
-              ? { daysBefore: 3, sendHourLocal: 9, ...template.params }
-              : template.params,
+            t.id === "plan_ending_soon"
+              ? { daysBefore: 3, sendHourLocal: 9, ...t.params }
+              : t.params,
         },
         user,
       );
-      toast.success(enabled ? "Reminder enabled" : "Reminder disabled");
     } catch (e) {
       toast.error(notificationError(e));
     } finally {
-      setToggling(null);
+      setBusy(false);
     }
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-semibold">Your notification templates</h2>
+          <h2 className="font-semibold">
+            {reminders ? "Automatic reminders" : "Saved messages"}
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Save any message and send it again whenever you want. No reminder or
-            campaign setup.
+            {reminders
+              ? "These messages are sent automatically when someone’s plan changes."
+              : "Keep messages here to reuse them later."}
           </p>
         </div>
-        <Button onClick={() => setManualEditor(emptyManualTemplate())}>
-          <Plus />
-          New template
-        </Button>
+        {!reminders && (
+          <Button
+            variant="outline"
+            onClick={() => setEditor(emptyManualTemplate())}
+          >
+            <Plus />
+            Create template
+          </Button>
+        )}
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        {templates
-          .filter((t) => isManualTemplate(t.id))
-          .map((t) => (
-            <div key={t.id} className="space-y-4 rounded-xl border bg-card p-5">
-              <Badge variant="outline">Send on demand</Badge>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {(reminders
+          ? TEMPLATE_IDS.map((id) => templates.find((t) => t.id === id)).filter(
+              (t): t is NotificationTemplate => !!t,
+            )
+          : templates.filter((t) => isManualTemplate(t.id))
+        ).map((t) => (
+          <div
+            key={t.id}
+            className="flex flex-col gap-4 rounded-xl border bg-card p-5"
+          >
+            <div className="flex items-start justify-between gap-3">
               <h3 className="font-semibold">
-                {t.name || t.title[t.sourceLocale] || "Untitled template"}
+                {reminders
+                  ? REMINDERS[t.id as keyof typeof REMINDERS].name
+                  : t.name || "Untitled template"}
               </h3>
-              <p className="line-clamp-2 text-sm text-muted-foreground">
-                {t.body[t.sourceLocale] ||
-                  t.body.en ||
-                  "Add your notification text"}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setManualEditor(t)}
-                >
-                  Edit template
-                </Button>
+              {reminders && (
+                <Switch
+                  aria-label={`Enable ${REMINDERS[t.id as keyof typeof REMINDERS].name}`}
+                  checked={t.enabled}
+                  disabled={busy}
+                  onCheckedChange={(enabled) => void toggle(t, enabled)}
+                />
+              )}
+            </div>
+            <p className="flex-1 text-sm leading-relaxed text-muted-foreground">
+              {reminders
+                ? REMINDERS[t.id as keyof typeof REMINDERS].description
+                : t.body[t.sourceLocale] || t.body.en || "No message yet."}
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setEditor(t)}>
+                Edit
+              </Button>
+              {!reminders && (
                 <Button size="sm" onClick={() => onSend(t)}>
+                  Use template
                   <Send />
-                  Send Notification
                 </Button>
-              </div>
+              )}
             </div>
-          ))}
+          </div>
+        ))}
       </div>
-      {!templates.some((t) => isManualTemplate(t.id)) && (
-        <Notice>
-          Create your first reusable template for announcements, updates or a
-          personal message.
-        </Notice>
+      {!reminders && !templates.some((t) => isManualTemplate(t.id)) && (
+        <div className="rounded-xl border border-dashed p-10 text-center">
+          <FileText className="mx-auto mb-3 h-7 w-7 text-muted-foreground" />
+          <p className="text-sm font-medium">No saved messages yet</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Create a template for a message you send often.
+          </p>
+        </div>
       )}
-      {manualEditor && (
-        <ManualTemplateEditor
-          key={manualEditor.id}
-          initial={manualEditor}
-          getToken={getToken}
-          onClose={() => setManualEditor(null)}
-          onSend={(t) => {
-            setManualEditor(null);
-            onSend(t);
-          }}
-        />
-      )}
-      <div>
-        <h2 className="font-semibold">Automated plan reminders</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Three backend triggers. Edit the message and audience for each
-          reminder.
-        </p>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        {TEMPLATE_IDS.map((id) => {
-          const template = templates.find((t) => t.id === id);
-          const names = {
-            plan_ending_soon: "Plan ending soon",
-            plan_ended: "Plan ended",
-            plan_renewed: "Plan renewed",
-          };
-          return (
-            <div
-              key={id}
-              className="flex flex-col gap-4 rounded-xl border bg-card p-5"
-            >
-              <div className="flex items-center justify-between">
-                <span className="rounded-lg bg-primary/10 p-2">
-                  <CalendarClock className="h-5 w-5 text-primary" />
-                </span>
-                <div className="flex items-center gap-2">
-                  <Badge variant={template?.enabled ? "success" : "muted"}>
-                    {template?.enabled ? "Enabled" : "Disabled"}
-                  </Badge>
-                  <Switch
-                    aria-label={`Enable ${names[id]}`}
-                    checked={template?.enabled ?? false}
-                    disabled={!template || !!toggling}
-                    onCheckedChange={(enabled) =>
-                      template && void toggle(template, enabled)
-                    }
-                  />
-                </div>
-              </div>
-              <div>
-                <h3 className="font-semibold">{names[id]}</h3>
-                <p className="mt-2 min-h-10 text-xs leading-relaxed text-muted-foreground">
-                  {template?.trigger ||
-                    "Seeded template is missing. Run the backend notification seed."}
-                </p>
-              </div>
-              <Badge variant="outline" className="self-start">
-                {template?.channel ?? "plan_reminders"}
-              </Badge>
-              <Button
-                variant="outline"
-                className="mt-auto"
-                disabled={!template}
-                onClick={() => template && setEditor(template)}
-              >
-                Edit reminder
-              </Button>
-              <Button
-                disabled={!template}
-                onClick={() => template && onSend(template)}
-              >
-                <Send />
-                Send Notification
-              </Button>
-            </div>
-          );
-        })}
-      </div>
-      {editor && (
-        <TemplateEditor
-          key={editor.id}
-          initial={editor}
-          getToken={getToken}
-          close={() => setEditor(null)}
-          onSend={(t) => {
-            setEditor(null);
-            onSend(t);
-          }}
-        />
-      )}
+      {reminders &&
+        !TEMPLATE_IDS.some((id) => templates.some((t) => t.id === id)) && (
+          <p className="text-sm text-muted-foreground">
+            Automatic reminders are not set up yet.
+          </p>
+        )}
+      {editor &&
+        (isManualTemplate(editor.id) ? (
+          <ManualTemplateEditor
+            key={editor.id}
+            initial={editor}
+            getToken={getToken}
+            onClose={() => setEditor(null)}
+          />
+        ) : (
+          <TemplateEditor
+            initial={editor}
+            getToken={getToken}
+            close={() => setEditor(null)}
+          />
+        ))}
     </div>
   );
 }
@@ -557,12 +448,10 @@ function TemplateEditor({
   initial,
   getToken,
   close,
-  onSend,
 }: {
   initial: NotificationTemplate;
   getToken: () => Promise<string>;
   close: () => void;
-  onSend: (template: NotificationTemplate) => void;
 }) {
   const { user } = useAuth();
   const [value, setValue] = React.useState({
@@ -575,42 +464,22 @@ function TemplateEditor({
   });
   const [busy, setBusy] = React.useState(false);
   const [translating, setTranslating] = React.useState(false);
-  const [results, setResults] = React.useState<
-    React.ComponentProps<typeof TestOutcomes>["results"]
-  >([]);
-  const errors = contentErrors(value, value.enabled);
-  const paramsInvalid =
-    value.id === "plan_ending_soon" &&
-    (!Number.isInteger(value.params.daysBefore) ||
-      value.params.daysBefore! < 1 ||
-      value.params.daysBefore! > 14 ||
-      !Number.isInteger(value.params.sendHourLocal) ||
-      value.params.sendHourLocal! < 0 ||
-      value.params.sendHourLocal! > 23);
+  const [error, setError] = React.useState("");
   async function save() {
     if (!user) return;
+    const error = contentErrors(value, value.enabled)[0];
+    if (error) {
+      setError(error);
+      return;
+    }
     setBusy(true);
+    setError("");
     try {
       await saveNotificationTemplate(value, user);
       toast.success("Reminder saved");
       close();
     } catch (e) {
-      toast.error(notificationError(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function test() {
-    setBusy(true);
-    setResults([]);
-    try {
-      const result = await sendNotificationTest(await getToken(), {
-        content: testContent(value),
-        target: "self",
-      });
-      setResults(result.results);
-    } catch (e) {
-      toast.error(notificationError(e));
+      setError(notificationError(e));
     } finally {
       setBusy(false);
     }
@@ -618,35 +487,29 @@ function TemplateEditor({
   return (
     <Dialog
       open
-      onOpenChange={(open) => {
-        if (!open && !busy && !translating) close();
-      }}
+      onOpenChange={(open) => !open && !busy && !translating && close()}
     >
-      <DialogContent className="flex max-h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="shrink-0 border-b p-5">
-          <DialogTitle>{initial.id.replace(/_/g, " ")}</DialogTitle>
-          <DialogDescription>{initial.trigger}</DialogDescription>
+      <DialogContent className="flex max-h-[92vh] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b p-6 pr-12">
+          <DialogTitle>
+            {REMINDERS[initial.id as keyof typeof REMINDERS].name}
+          </DialogTitle>
+          <DialogDescription>
+            Plan name and expiry date are filled automatically for each person.
+          </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
           <fieldset disabled={busy} className="space-y-6">
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <span className="text-sm font-medium">Enable this reminder</span>
-              <Switch
-                aria-label="Enable this reminder"
-                checked={value.enabled}
-                disabled={translating}
-                onCheckedChange={(enabled) => setValue({ ...value, enabled })}
-              />
-            </div>
             <ContentEditor
               value={value}
               onChange={setValue}
               getToken={getToken}
               onBusyChange={setTranslating}
+              allowVariables
             />
             {value.id === "plan_ending_soon" && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Days before expiry (1–14)">
+              <div className="grid max-w-xl gap-4 sm:grid-cols-2">
+                <Field label="Days before expiry">
                   <Input
                     type="number"
                     min={1}
@@ -664,7 +527,7 @@ function TemplateEditor({
                     }
                   />
                 </Field>
-                <Field label="Local send hour (0–23)">
+                <Field label="Send hour (local time)">
                   <Input
                     type="number"
                     min={0}
@@ -684,83 +547,242 @@ function TemplateEditor({
                 </Field>
               </div>
             )}
-            <PlanChoices
-              selected={value.audience.plans}
-              disabled={translating}
-              onChange={(plans) =>
-                setValue({ ...value, audience: { ...value.audience, plans } })
-              }
-            />
-            <p className="text-xs text-muted-foreground">
-              No plans selected means any plan.
-            </p>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={value.audience.excludeAdminGrant}
-                disabled={translating}
-                onChange={(e) =>
-                  setValue({
-                    ...value,
-                    audience: {
-                      ...value.audience,
-                      excludeAdminGrant: e.target.checked,
-                    },
-                  })
-                }
-              />
-              Exclude admin grants
-            </label>
-            {errors.length > 0 && <Notice danger>{errors.join(" · ")}</Notice>}
-            {paramsInvalid && (
-              <Notice danger>
-                Days before expiry must be 1–14; send hour must be 0–23.
-              </Notice>
-            )}
-            <TestOutcomes results={results} />
-            <DeviceStatus getToken={getToken} />
-            <p className="text-xs text-muted-foreground">
-              Tests use the current text and sample plan/date values. You can
-              test your source language before translating the remaining
-              languages.
-            </p>
+            <details className="rounded-lg border p-4">
+              <summary className="cursor-pointer text-sm">
+                Recipient filters{" "}
+                <span className="text-muted-foreground">Optional</span>
+              </summary>
+              <div className="mt-4 space-y-4">
+                <PlanChoices
+                  selected={value.audience.plans}
+                  disabled={translating}
+                  onChange={(plans) =>
+                    setValue({
+                      ...value,
+                      audience: { ...value.audience, plans },
+                    })
+                  }
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={value.audience.excludeAdminGrant}
+                    disabled={translating}
+                    onChange={(e) =>
+                      setValue({
+                        ...value,
+                        audience: {
+                          ...value.audience,
+                          excludeAdminGrant: e.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  Exclude plans granted by an admin
+                </label>
+              </div>
+            </details>
           </fieldset>
         </div>
-        <DialogFooter className="shrink-0 flex-wrap border-t bg-background p-4">
-          <Button
-            variant="outline"
-            onClick={close}
-            disabled={busy || translating}
-          >
-            Close
-          </Button>
-          <Button
-            variant="outline"
-            disabled={
-              busy || translating || testContentErrors(value).length > 0
-            }
-            onClick={() => void test()}
-          >
-            <SmartTestIcon />
-            Send test to me
-          </Button>
-          <Button
-            disabled={busy || translating || errors.length > 0 || paramsInvalid}
-            onClick={() => void save()}
-          >
-            {busy ? <Loader2 className="animate-spin" /> : <Save />}Save
-            reminder
-          </Button>
-          <Button disabled={busy || translating} onClick={() => onSend(value)}>
-            <Send /> Send Notification
-          </Button>
-        </DialogFooter>
+        <div className="shrink-0 border-t p-4 px-6">
+          {error && (
+            <p role="alert" className="mb-3 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <TestNotificationButton
+              content={value}
+              getToken={getToken}
+              disabled={busy || translating}
+            />
+            <Button disabled={busy || translating} onClick={() => void save()}>
+              {busy ? <Loader2 className="animate-spin" /> : <Save />}Save
+              reminder
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
-function SmartTestIcon() {
-  return <Send className="h-4 w-4" />;
+function CampaignList({
+  campaigns,
+  edit,
+  duplicate,
+}: {
+  campaigns: NotificationCampaign[];
+  edit: (c: NotificationCampaign) => void;
+  duplicate: (c: NotificationCampaign) => void;
+}) {
+  const { user } = useAuth();
+  const [filter, setFilter] = React.useState("all");
+  const [cancel, setCancel] = React.useState<NotificationCampaign | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  async function remove() {
+    if (!user || !cancel) return;
+    setBusy(true);
+    try {
+      await transitionNotificationCampaign(cancel.id, "cancelled", user);
+      setCancel(null);
+      toast.success("Notification cancelled");
+    } catch (e) {
+      toast.error(notificationError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const rows = campaigns.filter(
+    (c) =>
+      filter === "all" ||
+      (filter === "scheduled"
+        ? ["scheduled", "sending"].includes(c.status)
+        : c.status === filter),
+  );
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h2 className="font-semibold">Your notifications</h2>
+        <select
+          aria-label="Filter notifications"
+          className="rounded-lg border bg-background px-3 py-2 text-sm"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        >
+          <option value="all">All notifications</option>
+          <option value="scheduled">Upcoming</option>
+          <option value="draft">Drafts</option>
+          <option value="sent">Sent</option>
+          <option value="failed">Failed</option>
+        </select>
+      </div>
+      {!rows.length && (
+        <div className="rounded-xl border border-dashed p-12 text-center">
+          <Bell className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+          <p className="font-medium">
+            {campaigns.length
+              ? "No notifications in this view"
+              : "Your notifications will appear here"}
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {campaigns.length
+              ? "Choose another filter."
+              : "Use New notification to write your first message."}
+          </p>
+        </div>
+      )}
+      {rows.map((c) => (
+        <div key={c.id} className="rounded-xl border bg-card p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="break-words font-medium">
+                  {c.title[c.sourceLocale] ||
+                    c.title.en ||
+                    "Untitled notification"}
+                </h3>
+                <Badge
+                  variant={
+                    c.status === "sent"
+                      ? "success"
+                      : c.status === "failed"
+                        ? "destructive"
+                        : "muted"
+                  }
+                >
+                  {c.status === "scheduled" && !c.scheduledAt
+                    ? "Queued"
+                    : c.status[0].toUpperCase() + c.status.slice(1)}
+                </Badge>
+              </div>
+              <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+                {c.body[c.sourceLocale] || c.body.en}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {audienceSummary(c.audience)}
+                {c.scheduledAt
+                  ? ` · ${formatDateTime(c.scheduledAt)}`
+                  : c.status === "scheduled"
+                    ? " · Delivery begins shortly"
+                    : ""}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {canEditCampaign(c.status) && (
+                <Button size="sm" variant="outline" onClick={() => edit(c)}>
+                  Edit
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => duplicate(c)}>
+                <Copy />
+                {["draft", "scheduled"].includes(c.status)
+                  ? "Copy"
+                  : "Send again"}
+              </Button>
+              {["scheduled", "sending"].includes(c.status) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => setCancel(c)}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </div>
+          {c.status !== "draft" && (
+            <details className="mt-4 border-t pt-3">
+              <summary className="cursor-pointer text-xs text-muted-foreground">
+                Delivery details
+              </summary>
+              <div className="mt-3 flex flex-wrap gap-4 text-xs">
+                {STAT_KEYS.map((k) => (
+                  <span key={k} className="capitalize">
+                    {k}: <strong>{c.stats[k].toLocaleString()}</strong>
+                  </span>
+                ))}
+              </div>
+              {c.lastError && (
+                <p className="mt-3 text-xs text-destructive">{c.lastError}</p>
+              )}
+            </details>
+          )}
+        </div>
+      ))}
+      <Dialog
+        open={!!cancel}
+        onOpenChange={(open) => !open && !busy && setCancel(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel this notification?</DialogTitle>
+            <DialogDescription>
+              {cancel?.status === "sending"
+                ? "Some people may already have received it. Remaining delivery will stop."
+                : "This notification will no longer be sent."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => setCancel(null)}
+            >
+              Keep notification
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() => void remove()}
+            >
+              {busy && <Loader2 className="animate-spin" />}Cancel notification
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 export function PlanChoices({
   selected,
@@ -851,11 +873,10 @@ function SettingsPanel({ settings }: { settings: NotificationSettings }) {
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <ShieldCheck className="h-5 w-5 text-primary" />
-            Global delivery
+            Allow notifications
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Controls all real notifications. Turning off takes effect
-            immediately. Tests bypass this switch.
+            Pause or resume scheduled messages and automatic reminders.
           </p>
         </div>
         <Switch
@@ -918,10 +939,10 @@ function SettingsPanel({ settings }: { settings: NotificationSettings }) {
             </Field>
           </div>
         )}
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="max-w-sm">
           <Field
-            label="Maximum per user / rolling 24 hours"
-            hint="0–20 · accounts at the cap are skipped"
+            label="Daily limit per person"
+            hint="Maximum notifications in 24 hours"
           >
             <Input
               type="number"
@@ -933,55 +954,66 @@ function SettingsPanel({ settings }: { settings: NotificationSettings }) {
               }
             />
           </Field>
-          <Field
-            label="Fallback time zone"
-            hint="Used when a device has never reported a time zone"
-          >
-            <Input
-              value={value.defaultTimezone}
-              onChange={(e) =>
-                setValue({ ...value, defaultTimezone: e.target.value })
-              }
-              placeholder="Europe/Istanbul"
-            />
-          </Field>
         </div>
-        <Picker
-          label="Default channel"
-          value={value.defaultChannel}
-          options={{
-            plan_reminders: "Plan reminders",
-            product_updates: "Product updates",
-          }}
-          onChange={(defaultChannel) =>
-            setValue({
-              ...value,
-              defaultChannel:
-                defaultChannel as NotificationSettings["defaultChannel"],
-            })
-          }
-        />
-        <Field
-          label="Test recipient account UIDs"
-          hint="One UID per line; commas and spaces also work"
-        >
-          <Textarea
-            rows={4}
-            value={recipients}
-            onChange={(e) => setRecipients(e.target.value)}
-          />
-        </Field>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            user &&
-            setRecipients(parseUids(`${recipients}\n${user.uid}`).join("\n"))
-          }
-        >
-          Add me
-        </Button>
-        {errors.length > 0 && <Notice danger>{errors.join(" · ")}</Notice>}
+        <details className="rounded-lg border p-4">
+          <summary className="cursor-pointer text-sm">
+            Advanced settings
+          </summary>
+          <div className="mt-4 space-y-4">
+            <Field
+              label="Fallback time zone"
+              hint="Used when a device has never reported a time zone"
+            >
+              <Input
+                value={value.defaultTimezone}
+                onChange={(e) =>
+                  setValue({ ...value, defaultTimezone: e.target.value })
+                }
+                placeholder="Europe/Istanbul"
+              />
+            </Field>
+            <Picker
+              label="Default channel"
+              value={value.defaultChannel}
+              options={{
+                plan_reminders: "Plan reminders",
+                product_updates: "Product updates",
+              }}
+              onChange={(defaultChannel) =>
+                setValue({
+                  ...value,
+                  defaultChannel:
+                    defaultChannel as NotificationSettings["defaultChannel"],
+                })
+              }
+            />
+            <Field
+              label="Test recipient account UIDs"
+              hint="One UID per line; commas and spaces also work"
+            >
+              <Textarea
+                rows={4}
+                value={recipients}
+                onChange={(e) => setRecipients(e.target.value)}
+              />
+            </Field>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                user &&
+                setRecipients(
+                  parseUids(`${recipients}\n${user.uid}`).join("\n"),
+                )
+              }
+            >
+              Add me
+            </Button>
+          </div>
+        </details>
+        {errors.length > 0 && (
+          <p className="text-sm text-destructive">{errors[0]}</p>
+        )}
         <div className="flex justify-end">
           <Button
             disabled={busy || errors.length > 0}
@@ -997,8 +1029,8 @@ function SettingsPanel({ settings }: { settings: NotificationSettings }) {
           <DialogHeader>
             <DialogTitle>Enable global notification delivery?</DialogTitle>
             <DialogDescription>
-              Automated reminders and waiting scheduled campaigns can now be
-              sent by the backend. Check pending campaigns before enabling.
+              Automated reminders and scheduled notifications can now be sent by
+              the backend. Check upcoming notifications before enabling.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1018,172 +1050,7 @@ function SettingsPanel({ settings }: { settings: NotificationSettings }) {
     </div>
   );
 }
-function CampaignList({
-  campaigns,
-  edit,
-  duplicate,
-}: {
-  campaigns: NotificationCampaign[];
-  edit: (c: NotificationCampaign) => void;
-  duplicate: (c: NotificationCampaign) => void;
-}) {
-  const { user } = useAuth();
-  const [cancel, setCancel] = React.useState<NotificationCampaign | null>(null);
-  const [busy, setBusy] = React.useState(false);
-  async function change(
-    c: NotificationCampaign,
-    status: "draft" | "cancelled",
-  ) {
-    if (!user) return;
-    setBusy(true);
-    try {
-      await transitionNotificationCampaign(c.id, status, user);
-      setCancel(null);
-      toast.success(
-        status === "draft" ? "Returned to draft" : "Campaign cancelled",
-      );
-    } catch (e) {
-      toast.error(notificationError(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-semibold">Product campaigns</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Scheduled delivery is checked every 10 minutes. Statistics update
-            live.
-          </p>
-        </div>
-        {campaigns.some((c) => c.status === "sending") && (
-          <Badge variant="success">
-            <span className="mr-2 h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
-            Live
-          </Badge>
-        )}
-      </div>
-      {!campaigns.length && (
-        <div className="rounded-xl border border-dashed p-12 text-center text-sm text-muted-foreground">
-          Your first campaign starts here. Create a draft, test it, then
-          schedule.
-        </div>
-      )}
-      {campaigns.map((c) => (
-        <div key={c.id} className="space-y-4 rounded-xl border bg-card p-5">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="break-words font-semibold">
-                  {c.title[c.sourceLocale] || c.title.en || "Untitled campaign"}
-                </h3>
-                <Badge
-                  variant={
-                    c.status === "sent"
-                      ? "success"
-                      : c.status === "failed"
-                        ? "destructive"
-                        : c.status === "sending"
-                          ? "warning"
-                          : "muted"
-                  }
-                >
-                  {c.status}
-                </Badge>
-              </div>
-              <p className="mt-1 break-all text-xs text-muted-foreground">
-                {audienceSummary(c.audience)} ·{" "}
-                {c.scheduledAt
-                  ? formatDateTime(c.scheduledAt)
-                  : "Next dispatcher run (≤ 10 min)"}
-              </p>
-              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-                {c.id}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {canEditCampaign(c.status) && (
-                <Button size="sm" variant="outline" onClick={() => edit(c)}>
-                  {c.status === "draft" ? "Send Notification" : "Edit"}
-                </Button>
-              )}
-              <Button size="sm" variant="outline" onClick={() => duplicate(c)}>
-                <Copy />
-                Duplicate
-              </Button>
-              {c.status === "scheduled" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void change(c, "draft")}
-                >
-                  Return to draft
-                </Button>
-              )}
-              {["scheduled", "sending"].includes(c.status) && (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  disabled={busy}
-                  onClick={() => setCancel(c)}
-                >
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
-            {STAT_KEYS.map((k) => (
-              <div key={k} className="rounded-lg bg-muted/30 px-3 py-2">
-                <p className="text-xs capitalize text-muted-foreground">{k}</p>
-                <p className="mt-1 text-lg font-semibold tabular-nums">
-                  {c.stats[k].toLocaleString()}
-                </p>
-              </div>
-            ))}
-          </div>
-          {c.lastError && (
-            <Notice danger>Backend validation: {c.lastError}</Notice>
-          )}
-        </div>
-      ))}
-      <Dialog
-        open={!!cancel}
-        onOpenChange={(open) => !open && !busy && setCancel(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancel this campaign?</DialogTitle>
-            <DialogDescription>
-              {cancel?.status === "sending"
-                ? "Some users may already have received it. The dispatcher stops at the next batch."
-                : "This campaign will no longer be dispatched. Cancelled campaigns cannot be edited or restarted."}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => setCancel(null)}
-            >
-              Keep campaign
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() => cancel && void change(cancel, "cancelled")}
-            >
-              {busy && <Loader2 className="animate-spin" />}Cancel campaign
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+
 function LogPanel({ campaigns }: { campaigns: NotificationCampaign[] }) {
   const [logs, setLogs] = React.useState<NotificationLogEntry[]>([]);
   const [summaryLogs, setSummaryLogs] = React.useState<NotificationLogEntry[]>(
@@ -1239,7 +1106,7 @@ function LogPanel({ campaigns }: { campaigns: NotificationCampaign[] }) {
     )
       continue;
     const key = log.campaignId
-      ? `Campaign · ${log.campaignId}`
+      ? `Notification · ${log.campaignId}`
       : log.templateId
         ? `Template · ${log.templateId}`
         : "Tests";
@@ -1276,14 +1143,14 @@ function LogPanel({ campaigns }: { campaigns: NotificationCampaign[] }) {
           }}
         />
         <Picker
-          label="Campaign"
+          label="Notification"
           value={campaignId}
           onChange={(v) => {
             setCampaignId(v);
             setTemplateId("");
           }}
           options={{
-            "": "All campaigns",
+            "": "All notifications",
             ...Object.fromEntries(
               campaigns.map((c) => [c.id, `${c.title.en || c.id} · ${c.id}`]),
             ),

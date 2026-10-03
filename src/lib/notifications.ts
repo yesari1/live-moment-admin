@@ -335,17 +335,30 @@ export function settingsErrors(settings: NotificationSettings): string[] {
   }
   return errors;
 }
+export function sendContentErrors(content: NotificationContent): string[] {
+  const errors = contentErrors(content, false);
+  const source = content.sourceLocale;
+  if (!content.title[source].trim() || !content.body[source].trim())
+    errors.unshift(`Add a title and message in ${LANGUAGE_NAMES[source]}.`);
+  for (const locale of LOCALES) {
+    if (!!content.title[locale].trim() !== !!content.body[locale].trim())
+      errors.push(
+        `Finish the ${LANGUAGE_NAMES[locale]} translation or clear both fields.`,
+      );
+  }
+  return errors;
+}
 export function campaignErrors(
   campaign: NotificationCampaign,
   schedule: boolean,
 ): string[] {
   return [
-    ...contentErrors(campaign, schedule),
+    ...(schedule
+      ? sendContentErrors(campaign)
+      : contentErrors(campaign, false)),
     ...(schedule &&
     LOCALES.some((l) => /\{[^{}]+\}/.test(campaign.title[l] + campaign.body[l]))
-      ? [
-          "One-off sends need actual plan/date values. Fill the message variables or replace the placeholders before sending.",
-        ]
+      ? ["Choose the plan and date to use in this message."]
       : []),
     ...audienceErrors(campaign.audience),
     ...(schedule &&

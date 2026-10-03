@@ -339,7 +339,7 @@ export async function saveNotificationCampaign(
 ) {
   assertValid(campaignErrors(value, status === "scheduled"));
   if (value.channel !== "product_updates")
-    throw new Error("Campaigns must use product_updates.");
+    throw new Error("Notifications must use the product updates channel.");
   const db = database();
   const ref = value.id
     ? doc(db, "notificationCampaigns", value.id)
@@ -347,10 +347,10 @@ export async function saveNotificationCampaign(
   await runTransaction(db, async (tx) => {
     const old = await tx.get(ref);
     if (value.id && !old.exists())
-      throw new Error("Campaign no longer exists.");
+      throw new Error("This notification no longer exists.");
     if (old.exists() && !canEditCampaign(old.data().status))
       throw new Error(
-        "Campaign has started or finished. Duplicate it instead.",
+        "This notification has started or finished. Use Send again from History.",
       );
     if (status === "scheduled") {
       const settings = await tx.get(doc(db, "notificationSettings", "global"));
@@ -412,7 +412,7 @@ export async function transitionNotificationCampaign(
       !canTransitionCampaign(old.data().status, status) ||
       status === "scheduled"
     )
-      throw new Error("Campaign status changed. Refresh and try again.");
+      throw new Error("Notification status changed. Refresh and try again.");
     tx.update(ref, { status });
     audit(
       tx,

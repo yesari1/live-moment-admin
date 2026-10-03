@@ -56,7 +56,9 @@ describe("notification localization and validation", () => {
   it("requires actual variables for one-off delivery and renders localized dates", () => {
     const value = completeCampaign();
     for (const locale of LOCALES) value.body[locale] = "{planName}: {date}";
-    expect(campaignErrors(value, true).join(" ")).toContain("actual plan/date");
+    expect(campaignErrors(value, true).join(" ")).toContain(
+      "Choose the plan and date",
+    );
     const rendered = {
       ...value,
       ...renderNotificationVariables(value, "Live Weather", "2026-11-03"),
@@ -84,15 +86,28 @@ describe("notification localization and validation", () => {
     ).toEqual([...LOCALES]);
     expect(localeMap({ "pt-BR": "correct" })["pt-BR"]).toBe("correct");
   });
-  it("requires both fields in every language before scheduling", () => {
+  it("allows source-only delivery but rejects half-finished translations", () => {
     const value = completeCampaign();
     value.body.de = "";
-    expect(campaignErrors(value, true)).toContain("Deutsch: body is empty");
+    expect(campaignErrors(value, true)).toContain(
+      "Finish the Deutsch translation or clear both fields.",
+    );
     expect(campaignErrors(value, false)).not.toContain(
       "Deutsch: body is empty",
     );
+    value.title.de = "";
     value.title.en = "";
-    expect(campaignErrors(value, true)).toContain("English: title is empty");
+    value.body.en = "";
+    expect(campaignErrors(value, true)).toEqual([]);
+    for (const l of LOCALES.filter((l) => l !== value.sourceLocale)) {
+      value.title[l] = "";
+      value.body[l] = "";
+    }
+    expect(campaignErrors(value, true)).toEqual([]);
+    value.body[value.sourceLocale] = "";
+    expect(campaignErrors(value, true)).toContain(
+      "Add a title and message in Türkçe.",
+    );
   });
   it("counts expanded placeholder length and localizes the lock-screen date", () => {
     const value = completeCampaign();

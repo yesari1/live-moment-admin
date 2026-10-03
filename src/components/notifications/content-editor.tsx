@@ -1,10 +1,9 @@
 import * as React from "react";
-import { Bell, Check, Languages, Loader2, Smartphone } from "lucide-react";
+import { Bell, Languages, Loader2, ImagePlus, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -44,9 +43,7 @@ export function Field({
       <span className="text-sm font-medium">{label}</span>
       {children}
       {hint && (
-        <span className="block text-xs leading-relaxed text-muted-foreground">
-          {hint}
-        </span>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
       )}
     </label>
   );
@@ -68,7 +65,7 @@ export function Picker({
     <Field label={label}>
       <select
         aria-label={label}
-        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
@@ -96,7 +93,7 @@ export function Notice({
         "rounded-lg border p-3 text-sm leading-relaxed",
         danger
           ? "border-destructive/30 bg-destructive/5 text-destructive"
-          : "border-primary/20 bg-primary/5 text-muted-foreground",
+          : "bg-muted/30 text-muted-foreground",
       )}
     >
       {children}
@@ -109,54 +106,50 @@ export function ContentEditor<T extends NotificationContent>({
   getToken,
   onBusyChange,
   previewContent,
+  allowVariables = false,
 }: {
   value: T;
   onChange: (value: T) => void;
   getToken: () => Promise<string>;
   onBusyChange: (busy: boolean) => void;
   previewContent?: NotificationContent;
+  allowVariables?: boolean;
 }) {
   const [locale, setLocale] = React.useState<Locale>(value.sourceLocale);
   const [translating, setTranslating] = React.useState(false);
-  const [reviews, setReviews] = React.useState<
-    Partial<Record<Locale, "review" | "edited" | "confirmed">>
-  >({});
+  const [languagesOpen, setLanguagesOpen] = React.useState(false);
+  const [replace, setReplace] = React.useState(false);
   const [failures, setFailures] = React.useState<
     Partial<Record<Locale, string[]>>
   >({});
-  const [replace, setReplace] = React.useState(false);
   const [imageFailed, setImageFailed] = React.useState(false);
   const titleRef = React.useRef<HTMLInputElement>(null);
   const bodyRef = React.useRef<HTMLTextAreaElement>(null);
-  const focusField = React.useRef<"title" | "body">("body");
-  const replaceLocales = LOCALES.filter(
-    (l) =>
-      l !== value.sourceLocale &&
-      (value.title[l] || value.body[l]) &&
-      reviews[l] !== "review",
+  const focused = React.useRef<"title" | "body">("body");
+  const errors = localeErrors(value, locale, false);
+  const populated = LOCALES.filter(
+    (l) => l !== value.sourceLocale && (value.title[l] || value.body[l]),
   );
-  const errors = localeErrors(value, locale);
   const titleCount = expandedText(value.title[locale]).length;
   const bodyCount = expandedText(value.body[locale]).length;
-
   function edit(field: "title" | "body", text: string) {
     onChange({ ...value, [field]: { ...value[field], [locale]: text } });
-    setReviews((prev) => ({ ...prev, [locale]: "edited" }));
-    setFailures((prev) => ({ ...prev, [locale]: undefined }));
+    setFailures((p) => ({ ...p, [locale]: undefined }));
   }
-  function insert(placeholder: string) {
-    const field = focusField.current;
-    const element = field === "title" ? titleRef.current : bodyRef.current;
-    const text = value[field][locale];
-    const start = element?.selectionStart ?? text.length;
-    const end = element?.selectionEnd ?? start;
-    edit(field, text.slice(0, start) + placeholder + text.slice(end));
+  function insert(text: string) {
+    const field = focused.current;
+    const el = field === "title" ? titleRef.current : bodyRef.current;
+    const start = el?.selectionStart ?? value[field][locale].length;
+    const end = el?.selectionEnd ?? start;
+    edit(
+      field,
+      value[field][locale].slice(0, start) +
+        text +
+        value[field][locale].slice(end),
+    );
     requestAnimationFrame(() => {
-      element?.focus();
-      element?.setSelectionRange(
-        start + placeholder.length,
-        start + placeholder.length,
-      );
+      el?.focus();
+      el?.setSelectionRange(start + text.length, start + text.length);
     });
   }
   async function translate() {
@@ -176,28 +169,26 @@ export function ContentEditor<T extends NotificationContent>({
         title: { ...value.title },
         body: { ...value.body },
       };
-      const nextReviews = { ...reviews };
-      const nextFailures: Partial<Record<Locale, string[]>> = {};
+      const failed: Partial<Record<Locale, string[]>> = {};
       for (const l of LOCALES.filter((l) => l !== source)) {
         if (result.translations[l] && !result.failed[l]) {
           next.title[l] = result.translations[l]!.title;
           next.body[l] = result.translations[l]!.body;
-          nextReviews[l] = "review";
         } else {
-          next.title[l] = "";
-          next.body[l] = "";
-          delete nextReviews[l];
-          nextFailures[l] = result.failed[l] ?? [
-            "Translation was missing. Please enter this language manually.",
+          failed[l] = result.failed[l] ?? [
+            "Could not translate this language. Try again or write it yourself.",
           ];
         }
       }
       onChange(next);
-      setReviews(nextReviews);
-      setFailures(nextFailures);
-      toast.success("Translations filled for review", {
-        description: "Review each language, then save when ready.",
-      });
+      setFailures(failed);
+      setLanguagesOpen(true);
+      toast.success(
+        Object.keys(failed).length
+          ? "Some languages could not be translated"
+          : "Translations ready",
+        { description: "You can review and edit them below." },
+      );
     } catch (e) {
       toast.error(notificationError(e));
     } finally {
@@ -205,14 +196,14 @@ export function ContentEditor<T extends NotificationContent>({
       onBusyChange(false);
     }
   }
-  const sourceErrors = localeErrors(value, value.sourceLocale);
+  const preview = previewContent ?? value;
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
       <div className="min-w-0 space-y-5">
-        <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-end">
-          <div className="flex-1">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-40 flex-1">
             <Picker
-              label="Source language"
+              label="Writing language"
               value={value.sourceLocale}
               options={LANGUAGE_NAMES}
               disabled={translating}
@@ -223,93 +214,37 @@ export function ContentEditor<T extends NotificationContent>({
             />
           </div>
           <Button
-            type="button"
-            onClick={() =>
-              replaceLocales.length ? setReplace(true) : void translate()
+            variant="outline"
+            disabled={
+              translating || localeErrors(value, value.sourceLocale).length > 0
             }
-            disabled={translating || sourceErrors.length > 0}
+            onClick={() =>
+              populated.length ? setReplace(true) : void translate()
+            }
           >
             {translating ? <Loader2 className="animate-spin" /> : <Languages />}
-            {translating ? "Translating…" : "Translate to all languages"}
+            {translating ? "Translating…" : "Translate"}
           </Button>
         </div>
-        {translating && (
-          <Notice>
-            <span className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Translating from {LANGUAGE_NAMES[value.sourceLocale]} into five
-              languages. This may take a few seconds.
-            </span>
-          </Notice>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Write in your source language, translate, and review. Translations are
-          saved only when you press Save.
-        </p>
-        <Tabs value={locale} onValueChange={(l) => setLocale(l as Locale)}>
-          <TabsList className="flex h-auto flex-wrap justify-start gap-1 bg-muted/30 p-1">
-            {LOCALES.map((l) => {
-              const bad = localeErrors(value, l).length > 0 || !!failures[l];
-              return (
-                <TabsTrigger key={l} value={l} className="gap-2 px-3 py-2">
-                  <span>{l.toUpperCase()}</span>
-                  <span
-                    aria-label={
-                      bad
-                        ? "Incomplete or invalid"
-                        : reviews[l] === "review"
-                          ? "Review translation"
-                          : "Ready"
-                    }
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      bad
-                        ? "bg-destructive"
-                        : reviews[l] === "review"
-                          ? "bg-warning"
-                          : "bg-success",
-                    )}
-                  />
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </Tabs>
-        <fieldset disabled={translating} className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-medium">
-              {LANGUAGE_NAMES[locale]}{" "}
-              {locale === value.sourceLocale && (
-                <Badge variant="muted">Source</Badge>
-              )}
-            </h3>
-            {reviews[locale] === "review" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setReviews((p) => ({ ...p, [locale]: "confirmed" }))
-                }
-              >
-                <Check />
-                Confirm translation
-              </Button>
-            )}
-          </div>
-          {reviews[locale] === "review" && (
-            <div className="text-xs text-warning">
-              Machine translated · please review this language
-            </div>
+        <fieldset disabled={translating} className="space-y-5">
+          {languagesOpen && (
+            <Tabs value={locale} onValueChange={(l) => setLocale(l as Locale)}>
+              <TabsList className="flex h-auto flex-wrap justify-start">
+                {LOCALES.map((l) => (
+                  <TabsTrigger key={l} value={l}>
+                    {l.toUpperCase()}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
           )}
-          <Field label="Notification title">
+          <Field label="Title">
             <Input
               ref={titleRef}
               value={value.title[locale]}
-              onFocus={() => {
-                focusField.current = "title";
-              }}
+              onFocus={() => (focused.current = "title")}
               onChange={(e) => edit("title", e.target.value)}
-              placeholder="A short, clear headline"
+              placeholder="What’s new?"
               aria-invalid={titleCount > 50}
             />
             <span
@@ -318,7 +253,7 @@ export function ContentEditor<T extends NotificationContent>({
                 titleCount > 50 ? "text-destructive" : "text-muted-foreground",
               )}
             >
-              {titleCount} / 50
+              {titleCount}/50
             </span>
           </Field>
           <Field label="Message">
@@ -326,11 +261,9 @@ export function ContentEditor<T extends NotificationContent>({
               ref={bodyRef}
               rows={4}
               value={value.body[locale]}
-              onFocus={() => {
-                focusField.current = "body";
-              }}
+              onFocus={() => (focused.current = "body")}
               onChange={(e) => edit("body", e.target.value)}
-              placeholder="Give people a useful reason to open Live Moment."
+              placeholder="Write the notification people will receive."
               aria-invalid={bodyCount > 150}
             />
             <span
@@ -339,164 +272,145 @@ export function ContentEditor<T extends NotificationContent>({
                 bodyCount > 150 ? "text-destructive" : "text-muted-foreground",
               )}
             >
-              {bodyCount} / 150
+              {bodyCount}/150
             </span>
           </Field>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            Insert at cursor:
-            {["{date}", "{planName}"].map((p) => (
+          {(errors.length > 0 || failures[locale]) && (
+            <p role="alert" className="text-sm text-destructive">
+              {failures[locale]
+                ? "This translation is unavailable. Try again or write it yourself."
+                : errors[0]}
+            </p>
+          )}
+          {allowVariables && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              Personalize with
               <Button
-                key={p}
                 type="button"
                 size="sm"
                 variant="outline"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => insert(p)}
+                onClick={() => insert("{planName}")}
               >
-                {p}
+                Plan name
               </Button>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Counters include the longest sample values for placeholders.
-          </p>
-          {(errors.length > 0 || failures[locale]) && (
-            <Notice danger>
-              {[...errors, ...(failures[locale] ?? [])].join(" · ")}
-            </Notice>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => insert("{date}")}
+              >
+                Expiry date
+              </Button>
+            </div>
           )}
-          <Field
-            label="Image URL"
-            hint="Optional · HTTPS · recommended: 2:1 JPG/PNG, under 1 MB"
+          <button
+            type="button"
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setLanguagesOpen((p) => !p);
+              setLocale(value.sourceLocale);
+            }}
           >
-            <Input
-              type="url"
-              value={value.imageUrl}
-              onChange={(e) => {
-                setImageFailed(false);
-                onChange({ ...value, imageUrl: e.target.value });
-              }}
-              placeholder="https://…"
-            />
-          </Field>
-          <Picker
-            label="Open in the app"
-            value={value.deepLink}
-            options={DEEP_LINKS}
-            onChange={(deepLink) =>
-              onChange({
-                ...value,
-                deepLink: deepLink as NotificationContent["deepLink"],
-              })
-            }
-          />
+            <Languages className="h-4 w-4" />
+            {languagesOpen
+              ? "Hide translations"
+              : `Other languages${populated.length ? ` (${populated.length})` : ""}`}
+            <ChevronDown className="h-3 w-3" />
+          </button>
+          {!languagesOpen && (
+            <p className="text-xs text-muted-foreground">
+              {allowVariables
+                ? "Translations are used in each person’s app language."
+                : "Translate to use each person’s app language. Otherwise, your writing language is used."}
+            </p>
+          )}
+          <details className="rounded-lg border px-4 py-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              Image & destination{" "}
+              <span className="ml-1 font-normal text-muted-foreground">
+                Optional
+              </span>
+            </summary>
+            <div className="mt-4 space-y-4">
+              <Field label="Image URL">
+                <Input
+                  type="url"
+                  value={value.imageUrl}
+                  onChange={(e) => {
+                    setImageFailed(false);
+                    onChange({ ...value, imageUrl: e.target.value });
+                  }}
+                  placeholder="https://…"
+                />
+              </Field>
+              <Picker
+                label="Open in the app"
+                value={value.deepLink}
+                options={DEEP_LINKS}
+                onChange={(deepLink) =>
+                  onChange({
+                    ...value,
+                    deepLink: deepLink as NotificationContent["deepLink"],
+                  })
+                }
+              />
+            </div>
+          </details>
         </fieldset>
       </div>
-      <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Smartphone className="h-4 w-4" />
-          Lock-screen preview{" "}
-          <Badge variant="muted">{locale.toUpperCase()}</Badge>
-        </div>
-        <div className="rounded-[2rem] border border-white/10 bg-gradient-to-b from-slate-700 via-slate-900 to-indigo-950 p-5 shadow-xl">
-          <div className="mx-auto mb-7 h-1 w-12 rounded-full bg-white/30" />
-          <p className="text-center text-sm text-white/60">
-            Tuesday, 3 November
-          </p>
-          <p className="mb-8 mt-1 text-center text-5xl font-light tracking-tight text-white">
+      <aside className="space-y-3 lg:self-start">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Preview · {LANGUAGE_NAMES[locale]}
+        </p>
+        <div className="rounded-3xl bg-gradient-to-b from-slate-700 to-slate-950 px-4 py-8 shadow-sm">
+          <p className="mb-8 text-center text-4xl font-light text-white">
             09:41
           </p>
-          <div className="rounded-2xl bg-white/90 p-3 text-slate-900 shadow-lg">
-            <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide">
-              <span className="rounded-md bg-blue-600 p-1 text-white">
-                <Bell className="h-3 w-3" />
-              </span>
-              Live Moment
-              <span className="ml-auto font-normal text-slate-500">now</span>
+          <div className="rounded-2xl bg-white/95 p-4 text-slate-900">
+            <div className="mb-3 flex items-center gap-2 text-[10px] font-medium">
+              <Bell className="h-4 w-4 text-blue-600" /> LIVE MOMENT{" "}
+              <span className="ml-auto text-slate-400">now</span>
             </div>
             <p className="break-words text-sm font-semibold">
-              {previewText((previewContent ?? value).title[locale], locale) ||
-                "Your notification title"}
+              {previewText(preview.title[locale], locale) || "Your title"}
             </p>
             <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed">
-              {previewText((previewContent ?? value).body[locale], locale) ||
-                "Your message appears here."}
+              {previewText(preview.body[locale], locale) || "Your message"}
             </p>
             {value.imageUrl.startsWith("https://") && (
               <img
-                key={value.imageUrl}
                 src={value.imageUrl}
-                alt="Notification attachment"
+                alt="Notification image"
                 className="mt-3 aspect-[2/1] w-full rounded-lg object-cover"
                 onError={() => setImageFailed(true)}
               />
             )}
           </div>
-          <div className="mx-auto mt-14 h-1 w-20 rounded-full bg-white/50" />
+          <div className="mx-auto mt-12 h-1 w-16 rounded bg-white/30" />
         </div>
         {imageFailed && (
-          <Notice danger>
-            Image could not load. Check the public HTTPS URL.
-          </Notice>
-        )}
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {previewContent
-            ? "Preview reflects this send’s text. Fill any plan/date values below before sending."
-            : "Preview uses sample plan and date values."}{" "}
-          A test arrives in the receiving phone’s app language.
-        </p>
-        <div className="space-y-2 rounded-xl border p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Language readiness
+          <p className="flex items-center gap-2 text-xs text-destructive">
+            <ImagePlus className="h-3 w-3" />
+            Image unavailable. Check the URL.
           </p>
-          {LOCALES.map((l) => (
-            <button
-              type="button"
-              key={l}
-              onClick={() => setLocale(l)}
-              className="flex w-full items-center justify-between gap-2 py-1 text-xs"
-            >
-              <span>{LANGUAGE_NAMES[l]}</span>
-              <span
-                className={
-                  localeErrors(value, l).length || failures[l]
-                    ? "text-destructive"
-                    : reviews[l] === "review"
-                      ? "text-warning"
-                      : "text-success"
-                }
-              >
-                {failures[l]
-                  ? "Translation failed"
-                  : localeErrors(value, l).length
-                    ? "Needs attention"
-                    : reviews[l] === "review"
-                      ? "Review"
-                      : "Ready"}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
+        )}
+      </aside>
       <Dialog open={replace} onOpenChange={setReplace}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              Replace {replaceLocales.length} edited translations?
-            </DialogTitle>
+            <DialogTitle>Update translations?</DialogTitle>
             <DialogDescription>
-              New translations will replace{" "}
-              {replaceLocales.map((l) => LANGUAGE_NAMES[l]).join(", ")}. Your
-              source text stays as written.
+              This will replace the other language versions with a new
+              translation of your current text.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReplace(false)}>
-              Keep my edits
+              Keep current text
             </Button>
-            <Button onClick={() => void translate()}>
-              Replace and translate
-            </Button>
+            <Button onClick={() => void translate()}>Translate again</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

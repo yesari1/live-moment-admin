@@ -133,6 +133,21 @@ describe("notification endpoint contracts", () => {
   });
 });
 describe("transactional campaign ownership", () => {
+  it("schedules a source-only notification while preserving all six locale keys", async () => {
+    firestore.get
+      .mockResolvedValueOnce({ exists: () => false, data: () => undefined })
+      .mockResolvedValueOnce({ data: () => ({ enabled: true }) });
+    const value = emptyCampaign();
+    value.title.tr = "Yeni sahneler";
+    value.body.tr = "Koleksiyonu keşfet.";
+    value.audience = { kind: "all" };
+    await saveNotificationCampaign(value, "scheduled", actor);
+    const stored = firestore.set.mock.calls[0][1];
+    expect(stored.status).toBe("scheduled");
+    expect(Object.keys(stored.title)).toEqual([...LOCALES]);
+    expect(stored.title.tr).toBe("Yeni sahneler");
+    expect(stored.title.en).toBe("");
+  });
   it("creates a named manual template with an audit record and no automatic trigger", async () => {
     firestore.get.mockResolvedValue({
       exists: () => false,
@@ -156,7 +171,7 @@ describe("transactional campaign ownership", () => {
   });
   it("rejects scheduling if global delivery was disabled after the confirmation", async () => {
     firestore.get
-      .mockResolvedValueOnce({ exists: () => false })
+      .mockResolvedValueOnce({ exists: () => false, data: () => undefined })
       .mockResolvedValueOnce({ data: () => ({ enabled: false }) });
     await expect(
       saveNotificationCampaign(campaign(), "scheduled", actor),

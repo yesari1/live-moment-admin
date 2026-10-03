@@ -75,43 +75,36 @@ Firestore rules grant admins read access to both.
 
 ## Notifications
 
-Open **Notifications → Send Notification** to send a message without creating a
-campaign first. **Templates** supports named, reusable manual templates (`manual_*`)
-with an **Edit template** and **Send Notification** action. The three plan reminders
-remain automatic; manual templates are disabled for automatic triggers. One-off
-messages still use the backend delivery queue and appear in campaign history.
+**New notification** opens a three-step flow: message, recipients/time, and review.
+Choose **Send now** or a future date. Tests are optional and appear only after pressing
+**Send me a test**. A real send always shows a fresh reachable recipient count before
+confirmation; global delivery and backend-owned campaign status remain checked in the
+Firestore transaction. The backend starts due notifications within its 10-minute run.
 
-Open **Notifications** for plan reminder templates, campaign drafts and scheduling,
-global delivery settings, and delivery logs with 7/30-day summaries. The panel uses
-`notificationTemplates`, `notificationSettings/global`, `notificationCampaigns`,
-and the read-only `notificationLog` collection. Notification rules and the three
-seeded templates are managed by the app/backend repository; do not deploy the
-older example rules in this repository over the backend's deployed rules.
+**Templates** stores reusable messages. **Use template** opens a new notification;
+**Edit** saves the message without sending it. **Automatic reminders** is a separate
+section for the three plan triggers. Their plan/date placeholders are filled by the
+backend per account and are not offered when composing ordinary notifications.
 
-Compose in Turkish (default), English, or any of the six supported source languages.
-Translation fills the other language tabs for review, shows loading and per-language
-failures, and asks before replacing edited translations. Save explicitly after
-reviewing the previews. Every language must be complete before enabling a template
-or scheduling a campaign. Tests arrive in the receiving phone's app language;
-tests use the current editor text and can run with only the source language filled.
-Reminder tests render sample variables; a real one-off send requires actual plan/date
-values. The editor footer always shows send/test actions and explains blockers.
-The account device check shows the signed-in email/UID and backend registration
-status; phone notification permission alone does not imply device registration.
+Write in Turkish, English, or another supported language. Translation has a loading
+indicator, preserves current text on per-language failures, and confirms replacement
+of existing translations. Untranslated notifications may use just the selected source
+language; optional translations must have both a title and message. Enabled automatic
+reminders still require all six languages. Initial forms show no missing-field alerts;
+validation runs when continuing/saving and shows one actionable error at a time.
 
-Campaigns always use `product_updates`. Scheduling fetches a fresh reachable audience
-count and asks for confirmation. Sending to all accounts also requires a successful
-test for the exact content in this page session and typing `SEND`. Global delivery
-must be enabled; test sends bypass global delivery, quiet hours, and the daily cap.
-The backend dispatcher starts due campaigns within its next 10-minute run.
-Campaigns that have started can be cancelled at the next batch or duplicated, but
-cannot be edited. Notification changes append an audit record in the same Firestore
-transaction, and backend-owned stats/lease fields are preserved.
+History contains drafts, queued/scheduled notifications, and completed deliveries.
+Delivery statistics and logs are expandable. Phone registration diagnostics live under
+Settings and are shown during a failed test only when requested.
 
-After deployment, verify real delivery with your own account UID: translate a short
-message, send a test, and schedule a campaign targeting only that UID. Check the
-phone, campaign stats, and delivery log after the dispatcher run. Browser previews
-and automated tests alone cannot verify FCM/device delivery.
+The panel uses `notificationTemplates`, `notificationSettings/global`,
+`notificationCampaigns`, and `notificationLog`. Manual templates use `manual_*` IDs and
+no automatic trigger. Changes write audit records transactionally and preserve
+backend stats/lease fields. Notification rules and seeded templates are owned by the
+app/backend repository; do not replace its deployed rules with this repo's old examples.
+
+Browser previews and tests alone cannot verify FCM delivery. Check a real phone using
+an account that has registered its device.
 
 ## Security
 
