@@ -3,7 +3,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { FlaskConical, Loader2, Lock, ShieldCheck, Waves } from "lucide-react";
+import { FlaskConical, Loader2, Lock, ShieldCheck } from "lucide-react";
+import { BrandLogo } from "@/components/shared/brand-logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -71,9 +72,7 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15 text-primary">
-            <Waves className="h-6 w-6" />
-          </span>
+          <BrandLogo className="h-20 w-20 rounded-2xl shadow-lg shadow-[#edc779]/10" decorative />
           <div className="space-y-1">
             <h1 className="text-lg font-semibold tracking-tight">
               Live Moment Admin

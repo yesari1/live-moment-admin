@@ -11,15 +11,20 @@
       content="Live Moment internal operations console. Authorized administrators only."
     />
     <title>Live Moment Admin</title>
-    <link
-      rel="icon"
-      type="image/svg+xml"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230a0d14'/%3E%3Cpath d='M14 41c9-1 11-13 19-17 6-3 11 0 17-6-2 12-7 24-20 27-7 2-12 0-16-4Z' fill='%237cb8ff'/%3E%3Cpath d='M18 43c9-8 17-10 29-21' stroke='%23203752' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E"
-    />
+    <link rel="icon" type="image/png" href="/live-moment-logo.png" />
+    <link rel="apple-touch-icon" href="/live-moment-logo.png" />
+    <link rel="preload" as="image" href="/live-moment-logo.png" />
     <script src="config.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div role="status" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;background:#0a0d14;color:#aab5c6;font:14px system-ui,sans-serif">
+        <div style="width:96px;height:96px;overflow:hidden;border-radius:24px;border:1px solid #edc77933">
+          <img src="/live-moment-logo.png" alt="Live Moment" width="96" height="96" style="display:block;transform:scale(1.25)" />
+        </div>
+        <span>Loading admin console...</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

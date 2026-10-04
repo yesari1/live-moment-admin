@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
-import { ChevronsLeft, ChevronsRight, Waves } from "lucide-react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
+import { BrandLogo } from "@/components/shared/brand-logo";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "@/lib/navigation";
 import { Button } from "@/components/ui/button";
@@ -36,9 +37,7 @@ export function AppSidebar({
           collapsed && "justify-center px-0",
         )}
       >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-          <Waves className="h-4.5 w-4.5" />
-        </span>
+        <BrandLogo className="h-9 w-9 rounded-lg" decorative={!collapsed} />
         {!collapsed && (
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
