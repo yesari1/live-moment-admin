@@ -12,6 +12,7 @@ export const TEMPLATE_IDS = [
   "plan_ending_soon",
   "plan_ended",
   "plan_renewed",
+  "generation_ready",
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 export const PLANS = ["free", "live_weather", "live_weather_plus"] as const;
@@ -40,6 +41,18 @@ export interface NotificationTemplate extends NotificationContent {
   params: { daysBefore?: number; sendHourLocal?: number };
   audience: { plans: NotificationPlan[]; excludeAdminGrant: boolean };
 }
+export interface NotificationCatalogEntry {
+  id: string;
+  delivery: string;
+  editableIn: string;
+  templateId?: string;
+  channel?: string;
+  trigger: string;
+  textSource: string;
+  needsInternet: boolean;
+  notes: string;
+}
+
 export function isManualTemplate(id: string): boolean {
   return id.startsWith("manual_");
 }

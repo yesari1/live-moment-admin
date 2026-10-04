@@ -35,6 +35,7 @@ import {
   Picker,
 } from "@/components/notifications/content-editor";
 import { CampaignEditor } from "@/components/notifications/campaign-editor";
+import { NotificationCatalog } from "@/components/notifications/notification-catalog";
 import { ManualTemplateEditor } from "@/components/notifications/manual-template-editor";
 import { DeviceStatus } from "@/components/notifications/device-status";
 import { TestNotificationButton } from "@/components/notifications/test-notification-button";
@@ -55,6 +56,7 @@ import {
   templateCampaign,
   parseUids,
   settingsErrors,
+  type NotificationCatalogEntry,
   type NotificationCampaign,
   type NotificationLogEntry,
   type NotificationSettings,
@@ -66,6 +68,7 @@ import {
   saveNotificationSettings,
   saveNotificationTemplate,
   transitionNotificationCampaign,
+  watchNotificationCatalog,
   watchCampaigns,
   watchSettings,
   watchTemplates,
@@ -79,6 +82,10 @@ export function Busy({ text = "Loading…" }: { text?: string }) {
   );
 }
 const REMINDERS = {
+  generation_ready: {
+    name: "When a generation is ready",
+    description: "Notify someone when their image or video finishes while the app is in the background.",
+  },
   plan_ending_soon: {
     name: "Before a plan expires",
     description: "Remind subscribers while their plan is still active.",
@@ -95,12 +102,15 @@ const REMINDERS = {
 export function NotificationsPage() {
   const { user, getIdToken, demoMode } = useAuth();
   const [tab, setTab] = React.useState("history");
+  const [catalog, setCatalog] = React.useState<NotificationCatalogEntry[]>([]);
+  const [catalogTemplate, setCatalogTemplate] = React.useState<NotificationTemplate | null>(null);
   const [templates, setTemplates] = React.useState<NotificationTemplate[]>([]);
   const [settings, setSettings] =
     React.useState<NotificationSettings>(DEFAULT_SETTINGS);
   const [campaigns, setCampaigns] = React.useState<NotificationCampaign[]>([]);
   const [ready, setReady] = React.useState({
     templates: false,
+    catalog: false,
     settings: false,
     campaigns: false,
   });
@@ -112,7 +122,7 @@ export function NotificationsPage() {
     if (demoMode) return;
     setErrors({});
     const unsubs: (() => void)[] = [];
-    for (const key of ["templates", "settings", "campaigns"] as const) {
+    for (const key of ["templates", "settings", "campaigns", "catalog"] as const) {
       const fail = (e: Error) =>
         setErrors((p) => ({ ...p, [key]: notificationError(e) }));
       const done = () => {
@@ -127,6 +137,8 @@ export function NotificationsPage() {
               done();
             }, fail),
           );
+        if (key === "catalog")
+          unsubs.push(watchNotificationCatalog(v => { setCatalog(v); done(); }, fail));
         if (key === "settings")
           unsubs.push(
             watchSettings((v) => {
@@ -175,7 +187,7 @@ export function NotificationsPage() {
       });
   }
   function connection(
-    key: "templates" | "settings" | "campaigns",
+    key: "templates" | "settings" | "campaigns" | "catalog",
     content: React.ReactNode,
   ) {
     return errors[key] ? (
@@ -272,6 +284,12 @@ export function NotificationsPage() {
                 reminders={tab === "reminders"}
               />,
             )}
+          {tab === "templates" && connection("catalog", (
+            <NotificationCatalog entries={catalog} templates={templates} onEdit={setCatalogTemplate} />
+          ))}
+          {catalogTemplate && (
+            <TemplateEditor key={catalogTemplate.id} initial={catalogTemplate} getToken={token} close={() => setCatalogTemplate(null)} />
+          )}
           {tab === "settings" &&
             connection(
               "settings",
@@ -329,7 +347,7 @@ function TemplateList({
         {
           ...t,
           enabled,
-          channel: "plan_reminders",
+          channel: t.id === "generation_ready" ? "product_updates" : "plan_reminders",
           params:
             t.id === "plan_ending_soon"
               ? { daysBefore: 3, sendHourLocal: 9, ...t.params }
@@ -352,7 +370,7 @@ function TemplateList({
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {reminders
-              ? "These messages are sent automatically when someone’s plan changes."
+              ? "These messages are sent automatically when a generation finishes or a plan changes."
               : "Keep messages here to reuse them later."}
           </p>
         </div>
@@ -456,7 +474,7 @@ function TemplateEditor({
   const { user } = useAuth();
   const [value, setValue] = React.useState({
     ...initial,
-    channel: "plan_reminders" as const,
+    channel: initial.id === "generation_ready" ? "product_updates" as const : "plan_reminders" as const,
     params:
       initial.id === "plan_ending_soon"
         ? { daysBefore: 3, sendHourLocal: 9, ...initial.params }
@@ -476,7 +494,7 @@ function TemplateEditor({
     setError("");
     try {
       await saveNotificationTemplate(value, user);
-      toast.success("Reminder saved");
+      toast.success("Notification template saved");
       close();
     } catch (e) {
       setError(notificationError(e));
@@ -495,7 +513,9 @@ function TemplateEditor({
             {REMINDERS[initial.id as keyof typeof REMINDERS].name}
           </DialogTitle>
           <DialogDescription>
-            Plan name and expiry date are filled automatically for each person.
+            {initial.id === "generation_ready"
+              ? "Sent once per completed generation. Suppressed while the app is open and during quiet hours."
+              : "Plan name and expiry date are filled automatically for each person."}
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto p-6">

@@ -9,6 +9,7 @@ const firestore = vi.hoisted(() => ({
   get: vi.fn(),
   set: vi.fn(),
   update: vi.fn(),
+  subscribe: vi.fn(),
 }));
 vi.mock("@/lib/config", () => ({
   runtimeConfig: { backendBaseUrl: "https://backend.example" },
@@ -22,12 +23,15 @@ vi.mock("firebase/firestore", async (importOriginal) => ({
     path: path ? `${path}/${id}` : "audit/generated-id",
     id: id ?? "generated-id",
   }),
+  onSnapshot: firestore.subscribe,
   runTransaction: async (
     _db: unknown,
     action: (tx: typeof firestore) => Promise<void>,
   ) => action(firestore),
 }));
 import {
+  mapNotificationCatalog,
+  watchNotificationCatalog,
   dispatchNotificationCampaign,
   notificationError,
   previewAudience,
@@ -252,4 +256,33 @@ it("dispatches only the saved campaign through the authenticated backend", async
   expect(fetch).toHaveBeenCalledWith("https://backend.example/v1/admin/notifications/dispatch", expect.objectContaining({
     method: "POST", body: JSON.stringify({ campaignId: "c1" }), headers: expect.objectContaining({ Authorization: "Bearer token" }),
   }));
+});
+
+
+describe("notification catalogue and generation template", () => {
+  it("reads catalogue documents and forwards listener errors without writes", () => {
+    const stop = vi.fn();
+    firestore.subscribe.mockReturnValue(stop);
+    const next = vi.fn();
+    const fail = vi.fn();
+    expect(watchNotificationCatalog(next, fail)).toBe(stop);
+    expect(firestore.subscribe.mock.calls[0][0]).toBe("notificationCatalog");
+    firestore.subscribe.mock.calls[0][1]({ docs: [{ id: "generation_ready", data: () => ({
+      delivery: "push", editableIn: "notificationTemplates", templateId: "generation_ready",
+      trigger: "Generation completed", textSource: "notificationTemplates/generation_ready", needsInternet: true,
+    }) }] });
+    expect(next).toHaveBeenCalledWith([expect.objectContaining({ id: "generation_ready", templateId: "generation_ready", needsInternet: true })]);
+    expect(firestore.subscribe.mock.calls[0][2]).toBe(fail);
+    expect(firestore.set).not.toHaveBeenCalled();
+    expect(firestore.update).not.toHaveBeenCalled();
+    expect(mapNotificationCatalog("empty", { needsInternet: "true" }).needsInternet).toBe(false);
+  });
+  it("edits generation_ready on product_updates and preserves its server trigger", async () => {
+    firestore.get.mockResolvedValue({ exists: () => true, data: () => ({ trigger: "job_completed" }) });
+    const value = { ...campaign(), id: "generation_ready", enabled: true, trigger: "changed", params: {}, audience: { plans: [], excludeAdminGrant: false } };
+    await saveNotificationTemplate(value, actor);
+    expect(firestore.set.mock.calls[0][0].path).toBe("notificationTemplates/generation_ready");
+    expect(firestore.set.mock.calls[0][1]).toMatchObject({ channel: "product_updates", trigger: "job_completed", enabled: true });
+    await expect(saveNotificationTemplate({ ...value, channel: "plan_reminders" }, actor)).rejects.toThrow("generation-ready");
+  });
 });
