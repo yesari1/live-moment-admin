@@ -90,7 +90,7 @@ export function UserPasswordLogin({ uid, email }: { uid: string; email: string |
       {enabled === true && <Badge variant="success">Password Set</Badge>}
       {enabled === false && <Badge variant="muted">Password Login Off</Badge>}
       {!email && <span className="text-xs text-muted-foreground">An email address is required.</span>}
-      {loadError && <span role="alert" className="basis-full text-xs text-destructive">Password login status could not be loaded. <Button variant="link" size="sm" onClick={() => void load()} disabled={loading}>Retry</Button></span>}
+      {loadError && <span role="alert" className="basis-full text-xs text-destructive">{loadError} <Button variant="link" size="sm" onClick={() => void load()} disabled={loading}>Retry</Button></span>}
     </div>
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent>

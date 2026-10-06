@@ -57,10 +57,12 @@ export function passwordLoginError(error: unknown): string {
   if (error instanceof BackendError) {
     if (error.code === "INVALID_EMAIL") return "Enter a valid email address.";
     if (error.code === "PASSWORD_TOO_SHORT" || error.code === "INVALID_PASSWORD_LENGTH") return "Password must contain 8–128 characters.";
-    if (error.code === "USER_NOT_FOUND" || error.status === 404) return "Account not found. The user must sign in to the app at least once before setting a password.";
+    if (error.code === "USER_NOT_FOUND") return "Account not found. The user must sign in to the app at least once before setting a password.";
+    if (error.status === 404) return "The password login endpoint is unavailable. Check the backend deployment.";
     if (error.status === 401) return "Your session could not be verified. Sign in again and retry.";
     if (error.status === 403) return "Access denied. Verify that your account has admin access.";
     if (error.status === 400) return "The request was rejected. Check the email and password requirements.";
   }
+  if (error instanceof TypeError) return "Could not reach the password login service. Check your connection and the backend's CORS configuration.";
   return "Could not complete the request. Please retry.";
 }

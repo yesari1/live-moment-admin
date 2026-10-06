@@ -50,7 +50,7 @@ describe("password login API contract", () => {
   });
 
   it("maps backend errors without exposing raw messages or credentials", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "USER_NOT_FOUND" }), { status: 404 })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: "USER_NOT_FOUND" } }), { status: 404 })));
     try { await listPasswordLoginAccounts("token"); } catch (err) {
       expect(passwordLoginError(err)).toContain("must sign in to the app at least once");
     }
