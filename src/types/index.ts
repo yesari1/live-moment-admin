@@ -300,6 +300,7 @@ export interface AuditLog {
 }
 
 export type AuditAction =
+  | "MODEL_PRICING_UPDATED"
   | "AI_ROUTING_UPDATED"
   | "PLAN_UPDATED"
   | "TEMPLATE_CREATED"

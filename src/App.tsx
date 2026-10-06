@@ -10,6 +10,7 @@ import { AccessDeniedPage } from "@/pages/AccessDenied";
 import { DashboardPage } from "@/pages/Dashboard";
 import { UsersPage } from "@/pages/Users";
 import { GenerationsPage } from "@/pages/Generations";
+import { ModelPricingPage } from "@/pages/ModelPricing";
 import { AIRoutingPage } from "@/pages/AIRouting";
 import { PlansPage } from "@/pages/Plans";
 import { TemplatesPage } from "@/pages/Templates";
@@ -44,6 +45,7 @@ function AppRoutes() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/generations" element={<GenerationsPage />} />
+        <Route path="/model-pricing" element={<ModelPricingPage />} />
         <Route path="/ai-routing" element={<AIRoutingPage />} />
         <Route path="/plans" element={<PlansPage />} />
         <Route path="/templates" element={<TemplatesPage />} />

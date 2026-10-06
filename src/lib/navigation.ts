@@ -1,5 +1,6 @@
 import {
   Activity,
+  DollarSign,
   Bell,
   FileText,
   LayoutDashboard,
@@ -43,6 +44,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "AI Routing",
     icon: Route,
     description: "Remote control of providers and models per context.",
+  },
+  {
+    to: "/model-pricing",
+    label: "Model Pricing",
+    icon: DollarSign,
+    description: "Manage image and video cost estimates in USD.",
   },
   {
     to: "/plans",

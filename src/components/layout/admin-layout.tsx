@@ -23,7 +23,7 @@ export function AdminLayout() {
   }, []);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-dvh overflow-hidden bg-background">
       <div className="hidden lg:block">
         <AppSidebar collapsed={collapsed} onToggle={toggle} />
       </div>
@@ -39,10 +39,10 @@ export function AdminLayout() {
         </SheetContent>
       </Sheet>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopHeader onOpenMobileNav={() => setMobileOpen(true)} />
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1600px] space-y-6 p-4 sm:p-6">
+        <main key={location.pathname} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6">
             <ErrorBoundary key={location.pathname}>
               <Outlet />
             </ErrorBoundary>

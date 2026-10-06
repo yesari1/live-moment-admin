@@ -48,6 +48,8 @@ import {
 import { demoTemplateVersions } from "@/services/demo-data";
 import { backendDeleteUser } from "@/services/backend";
 import { toDate } from "@/lib/format";
+import { applyGenerationPrices, applyUsagePrices } from "@/lib/model-pricing";
+import { fetchModelPrices } from "@/services/model-pricing";
 
 export interface Actor {
   uid: string;
@@ -326,17 +328,29 @@ export interface ModelCatalogResult {
  * which is almost always a missing Firestore rule.
  */
 export async function fetchModelCatalog(): Promise<ModelCatalogResult> {
+  const overrides = await fetchModelPrices();
+  const applyPrices = (providers: ProviderInfo[]) => providers.map(provider => ({
+    ...provider,
+    imageModels: provider.imageModels.map(enrich),
+    videoModels: provider.videoModels.map(enrich),
+  }));
+  function enrich(model: ModelInfo): ModelInfo {
+    const price = overrides[model.id];
+    return !price ? model : { ...model,
+      estimatedCost: price.mode === "per_second" ? null : price.amountUsd,
+      estimatedCostPerSecond: price.mode === "per_second" ? price.amountUsd : null };
+  }
   if (!isLiveData) {
-    return { providers: await delay(clone(BUILTIN_PROVIDERS)), source: "builtin" };
+    return { providers: applyPrices(await delay(clone(BUILTIN_PROVIDERS))), source: "builtin" };
   }
   const [models, rates] = await Promise.all([
     fetchAiModelsFromFirestore(),
     fetchModelRatesFromFirestore(),
   ]);
   if (!models || models.length === 0) {
-    return { providers: clone(BUILTIN_PROVIDERS), source: "builtin" };
+    return { providers: applyPrices(clone(BUILTIN_PROVIDERS)), source: "builtin" };
   }
-  return { providers: buildProviderCatalog(models, rates ?? {}), source: "firestore" };
+  return { providers: applyPrices(buildProviderCatalog(models, rates ?? {})), source: "firestore" };
 }
 
 /* ------------------------------------------------------------ generations */
@@ -346,41 +360,31 @@ export async function fetchGenerations(): Promise<GenerationRecord[]> {
   return live(() => fetchGenerationsFromFirestore(), "Generations");
 }
 
+async function fetchRawUsage(): Promise<UsageEvent[]> {
+  return !isLiveData ? delay(clone(demoState.usageEvents)) : live(() => fetchUsageFromFirestore(), "Usage events");
+}
+
 export async function fetchUsage(): Promise<UsageEvent[]> {
-  if (!isLiveData) return delay(clone(demoState.usageEvents));
-  return live(() => fetchUsageFromFirestore(), "Usage events");
+  const [events, prices, generations] = await Promise.all([
+    fetchRawUsage(),
+    fetchModelPrices(),
+    fetchGenerations(),
+  ]);
+  return applyUsagePrices(events, prices, generations);
 }
 
 /**
- * Generations enriched with the real recorded cost. `generationJobs` documents
- * carry no cost, so the backend's `generationUsageEvents` (`estimatedCostUsd`,
- * keyed by `jobId`) is the source of truth. A job may emit more than one usage
- * event (keyframe image + video), so the costs are summed per job and the
- * contributing events are kept on the record for the detail view.
+ * Generations enriched with usage-event charges and saved admin estimates.
+ * Each provider leg is repriced independently, including a video's keyframe.
+ * Recorded charges remain the fallback for models without an admin price.
  */
 export async function fetchGenerationsWithCost(): Promise<GenerationRecord[]> {
-  const [generations, usage] = await Promise.all([
+  const [generations, usage, prices] = await Promise.all([
     fetchGenerations(),
-    fetchUsage(),
+    fetchRawUsage(),
+    fetchModelPrices(),
   ]);
-  const eventsByJob = new Map<string, UsageEvent[]>();
-  for (const event of usage) {
-    const list = eventsByJob.get(event.jobId) ?? [];
-    list.push(event);
-    eventsByJob.set(event.jobId, list);
-  }
-  return generations.map((generation) => {
-    const events = eventsByJob.get(generation.id);
-    if (!events) return generation;
-    return {
-      ...generation,
-      costEvents: events,
-      estimatedCost:
-        generation.estimatedCost ??
-        sumEventCost(events) ??
-        null,
-    };
-  });
+  return applyGenerationPrices(generations, applyUsagePrices(usage, prices, generations), prices);
 }
 
 /**

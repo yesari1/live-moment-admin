@@ -66,7 +66,7 @@ export function AppSettingsPage() {
   }, [query.data, form]);
 
   const values = form.watch();
-  const dirty = form.formState.isDirty;
+  const dirty = form.formState.isDirty || JSON.stringify(flags) !== JSON.stringify(query.data?.featureFlags ?? {});
 
   const performSave = async (
     data: FormValues,
@@ -373,7 +373,7 @@ export function AppSettingsPage() {
                   ? "You have unsaved changes."
                   : "All changes saved."}
               </p>
-              <Button type="submit" disabled={!dirty}>
+              <Button type="submit" disabled={!dirty || form.formState.isSubmitting}>
                 <Save className="h-4 w-4" />
                 Save changes
               </Button>

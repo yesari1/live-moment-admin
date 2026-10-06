@@ -67,6 +67,25 @@ selectable under AI Routing after reloading the console, with no redeploy. Both
 collections are server-owned: the console reads them and never writes them.
 Firestore rules grant admins read access to both.
 
+## Editable model estimates
+
+**Model Pricing** lists every registered image/video model, including disabled
+models. Set USD per image, USD per generated second, or a fixed USD per video
+(with an optional fixed duration such as 5 seconds). Save each model separately.
+Admin overrides live in `admin_config/model_pricing.models.{modelId}` and each
+save writes `MODEL_PRICING_UPDATED` to the audit trail in the same transaction.
+The existing admin rules for `admin_config` and `admin_audit_logs` apply.
+
+Saved estimates override catalog prices and apply only to jobs created after
+the save. Every model retains its effective dates and previous prices so later
+edits never reprice earlier jobs. Jobs predating the first save keep their recorded
+costs, including jobs still running when a price changes. Video jobs include both
+their keyframe and video legs. Unknown models,
+failed calls, and per-second events without a duration retain their recorded
+charge. Incomplete repriced job totals display as unknown. Provider billing and
+the backend's `pricingConfigs/current` are unchanged. These are admin reporting
+estimates, not an accounting record of the provider invoice.
+
 ## Firestore collections read
 
 `users`, `generationJobs`, `generationUsageEvents`, `motionTemplates`,
