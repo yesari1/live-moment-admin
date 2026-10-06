@@ -19,6 +19,7 @@ import { FeedbackPage } from "@/pages/Feedback";
 import { LogsPage } from "@/pages/Logs";
 import { NotFoundPage } from "@/pages/NotFound";
 import { NotificationsPage } from "@/pages/Notifications";
+import { PasswordLoginPage } from "@/pages/PasswordLogin";
 
 function ProtectedRoutes() {
   const { status } = useAuth();
@@ -44,6 +45,7 @@ function AppRoutes() {
       <Route element={<ProtectedRoutes />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/password-login" element={<PasswordLoginPage />} />
         <Route path="/generations" element={<GenerationsPage />} />
         <Route path="/model-pricing" element={<ModelPricingPage />} />
         <Route path="/ai-routing" element={<AIRoutingPage />} />

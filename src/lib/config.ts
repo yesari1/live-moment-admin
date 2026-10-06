@@ -10,6 +10,7 @@ export interface FirebaseWebConfig {
 export interface AdminRuntimeConfig {
   firebase: FirebaseWebConfig;
   backendBaseUrl: string;
+  appCheckSiteKey: string;
   adminEmails: string[];
   forceDemoData: boolean;
 }
@@ -30,6 +31,7 @@ const FALLBACK: AdminRuntimeConfig = {
     appId: "",
   },
   backendBaseUrl: "",
+  appCheckSiteKey: "",
   adminEmails: [],
   forceDemoData: false,
 };
@@ -39,6 +41,7 @@ function readConfig(): AdminRuntimeConfig {
   return {
     firebase: { ...FALLBACK.firebase, ...(raw.firebase ?? {}) },
     backendBaseUrl: raw.backendBaseUrl ?? FALLBACK.backendBaseUrl,
+    appCheckSiteKey: raw.appCheckSiteKey ?? FALLBACK.appCheckSiteKey,
     adminEmails: (raw.adminEmails ?? []).map((e) => e.toLowerCase()),
     forceDemoData: raw.forceDemoData ?? false,
   };

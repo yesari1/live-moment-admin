@@ -1,4 +1,5 @@
 import { initializeApp, type FirebaseApp } from "firebase/app";
+import { getToken, initializeAppCheck, ReCaptchaEnterpriseProvider, type AppCheck } from "firebase/app-check";
 import {
   getAuth,
   setPersistence,
@@ -14,6 +15,19 @@ import { isFirebaseConfigured, runtimeConfig } from "@/lib/config";
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
+let appCheck: AppCheck | null = null;
+
+export async function getFirebaseAppCheckToken(): Promise<string> {
+  const instance = ensureApp();
+  if (!instance || !runtimeConfig.appCheckSiteKey) {
+    throw new Error("App Check is not configured.");
+  }
+  appCheck ??= initializeAppCheck(instance, {
+    provider: new ReCaptchaEnterpriseProvider(runtimeConfig.appCheckSiteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+  return (await getToken(appCheck)).token;
+}
 
 function ensureApp(): FirebaseApp | null {
   if (!isFirebaseConfigured) return null;

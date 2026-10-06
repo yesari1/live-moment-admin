@@ -5,6 +5,7 @@ import {
   FileText,
   LayoutDashboard,
   Layers,
+  KeyRound,
   MessageSquare,
   Route,
   Settings2,
@@ -32,6 +33,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Users",
     icon: Users,
     description: "Search, inspect and manage Live Moment accounts.",
+  },
+  {
+    to: "/password-login",
+    label: "Password Login",
+    icon: KeyRound,
+    description: "Set passwords and manage email sign-in for existing accounts.",
   },
   {
     to: "/generations",

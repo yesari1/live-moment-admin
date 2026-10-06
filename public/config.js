@@ -27,6 +27,10 @@ window.LIVE_MOMENT_ADMIN_CONFIG = Object.freeze({
   // Trusted backend (Express API on Cloud Run) used for privileged operations.
   backendBaseUrl: "https://living-memories-api-okmceddtoa-uc.a.run.app",
 
+  // Public reCAPTCHA Enterprise site key registered for this Web App in Firebase
+  // App Check. Include admin.yesastudio.com in the key's allowed domains.
+  appCheckSiteKey: "",
+
   // Admin authorization. Prefer the `admin: true` custom claim (see
   // admin/tools/set-admin-claim.mjs) and leave this list EMPTY: this file is
   // PUBLIC, so any address listed here is visible to everyone at /admin/config.js.
