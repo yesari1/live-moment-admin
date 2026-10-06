@@ -3,7 +3,6 @@ import { Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -84,11 +83,10 @@ export function UserPasswordLogin({ uid, email }: { uid: string; email: string |
   return <>
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="outline" size="sm" disabled={demoMode || !email || loading} onClick={() => changeOpen(true)}>
+        {enabled !== null && <span className={`border-r pr-2 text-xs ${enabled ? "text-success" : "text-muted-foreground"}`}>{enabled ? "On" : "Off"}</span>}
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
         {enabled ? "Change Password Login" : "Set Password Login"}
       </Button>
-      {enabled === true && <Badge variant="success">Password Set</Badge>}
-      {enabled === false && <Badge variant="muted">Password Login Off</Badge>}
       {!email && <span className="text-xs text-muted-foreground">An email address is required.</span>}
       {loadError && <span role="alert" className="basis-full text-xs text-destructive">{loadError} <Button variant="link" size="sm" onClick={() => void load()} disabled={loading}>Retry</Button></span>}
     </div>
