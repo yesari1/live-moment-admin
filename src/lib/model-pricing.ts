@@ -41,15 +41,24 @@ export function estimateModelCost(price: ModelPrice | undefined, type: Generatio
 
 export function applyUsagePrices(events: UsageEvent[], prices: ModelPrices,
   generations: GenerationRecord[] = []): UsageEvent[] {
-  const created = new Map(generations.map(job => [job.id, job.createdAt]));
+  const jobs = new Map(generations.map(job => [job.id, job]));
   return events.map(event => {
     // Failed calls retain their recorded charge; a model's normal price cannot
     // tell us whether a provider charged for a failed attempt.
-    if (event.status !== "success" || !created.has(event.jobId)) return event;
-    const cost = estimateModelCost(priceAt(prices[event.model],
-      created.get(event.jobId)!), event.stage, event.durationSeconds);
+    const job = jobs.get(event.jobId);
+    if (event.status !== "success" || !job) return event;
+    const cost = estimateUsageCost(event, prices, job);
     return cost === null ? event : { ...event, estimatedCostUsd: cost, estimatedCostTry: null };
   });
+}
+
+function estimateUsageCost(event: UsageEvent, prices: ModelPrices, job: GenerationRecord): number | null {
+  // durationSeconds in usage documents is elapsed processing time. Bill only
+  // requested video seconds, falling back to a matching completed video output.
+  const duration = event.requestedDurationSeconds ??
+    (event.stage === "video" && job.type === "video" && job.status === "completed" &&
+      event.model === job.model && job.durationMs !== null ? job.durationMs / 1000 : null);
+  return estimateModelCost(priceAt(prices[event.model], job.createdAt), event.stage, duration);
 }
 
 export function applyGenerationPrices(generations: GenerationRecord[], events: UsageEvent[],
@@ -64,7 +73,7 @@ export function applyGenerationPrices(generations: GenerationRecord[], events: U
     const legs = byJob.get(generation.id);
     if (legs?.length) {
       const repriced = legs.some(event => event.status === "success" &&
-        estimateModelCost(priceAt(prices[event.model], generation.createdAt), event.stage, event.durationSeconds) !== null);
+        estimateUsageCost(event, prices, generation) !== null);
       const costs = legs.map(event => event.estimatedCostUsd).filter((cost): cost is number => cost !== null);
       return { ...generation, costEvents: legs, estimatedCost: repriced
         ? (costs.length === legs.length ? costs.reduce((a, b) => a + b, 0) : null)

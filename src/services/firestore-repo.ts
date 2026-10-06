@@ -240,6 +240,7 @@ export function mapUsageEvent(id: string, data: RawDoc) {
       | "failure",
     estimatedCostUsd: num(data.estimatedCostUsd),
     estimatedCostTry: num(data.estimatedCostTry),
+    requestedDurationSeconds: numLike(data.requestedDurationSeconds),
     durationSeconds: num(data.durationSeconds),
     startedAt: toDate((data.startedAt ?? data.createdAt) as never),
     completedAt: toDate(data.completedAt as never),

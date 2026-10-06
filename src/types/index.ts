@@ -129,6 +129,9 @@ export interface UsageEvent {
   status: "success" | "failure";
   estimatedCostUsd: number | null;
   estimatedCostTry: number | null;
+  /** Billable video length; distinct from the provider's processing time. */
+  requestedDurationSeconds?: number | null;
+  /** Elapsed provider processing time, never billable video length. */
   durationSeconds: number | null;
   startedAt: Date | null;
   completedAt: Date | null;

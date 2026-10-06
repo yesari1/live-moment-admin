@@ -453,8 +453,10 @@ function GenerationDetailDrawer({
                         </p>
                         <p className="truncate text-[11px] text-muted-foreground">
                           {getProviderDisplayName(event.provider)}
+                          {event.stage === "video" && event.requestedDurationSeconds != null &&
+                            ` · ${event.requestedDurationSeconds}s video`}
                           {event.durationSeconds != null &&
-                            ` · ${event.durationSeconds}s`}
+                            ` · ${event.durationSeconds}s processing`}
                         </p>
                       </div>
                       <CostDisplay value={event.estimatedCostUsd} />
