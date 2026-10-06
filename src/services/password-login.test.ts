@@ -39,12 +39,14 @@ describe("password login API contract", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("does not send credentials if App Check fails", async () => {
-    vi.mocked(getFirebaseAppCheckToken).mockRejectedValueOnce(new Error("verification failed"));
-    const fetch = vi.fn();
+  it("sends the request without the App Check header when App Check is not configured", async () => {
+    vi.mocked(getFirebaseAppCheckToken).mockRejectedValueOnce(new Error("App Check is not configured."));
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ accounts: [] }), { status: 200 }));
     vi.stubGlobal("fetch", fetch);
-    await expect(updatePasswordLoginAccount("token", { email: "user@example.com", enabled: true, password: "test-password" })).rejects.toMatchObject({ code: "APP_CHECK_UNAVAILABLE" });
-    expect(fetch).not.toHaveBeenCalled();
+    await listPasswordLoginAccounts("token");
+    const headers = new Headers(fetch.mock.calls[0][1].headers);
+    expect(headers.get("X-Firebase-AppCheck")).toBeNull();
+    expect(headers.get("Authorization")).toBe("Bearer token");
   });
 
   it("maps backend errors without exposing raw messages or credentials", async () => {

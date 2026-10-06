@@ -42,6 +42,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { StatCard } from "@/components/shared/stat-card";
 import { ConfirmActionDialog } from "@/components/shared/confirm-action-dialog";
+import { UserPasswordLogin } from "@/components/shared/user-password-login";
 import { CostDisplay } from "@/components/shared/cost-display";
 import {
   AccountStatusBadge,
@@ -675,6 +676,7 @@ function UserDetailDrawer({
                     <UserCheck className="h-4 w-4" /> Not a test account
                   </Button>
                 )}
+                <UserPasswordLogin key={user.uid} uid={user.uid} email={user.email} />
                 <Button
                   variant="destructive"
                   size="sm"
