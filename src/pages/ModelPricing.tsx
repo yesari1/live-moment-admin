@@ -31,8 +31,11 @@ export function ModelPricingPage() {
   const [localPrices, setLocalPrices] = React.useState<ModelPrices>({});
   const models = (query.data?.providers ?? []).flatMap(provider =>
     [...provider.imageModels, ...provider.videoModels].map(model => ({ ...model, providerName: provider.displayName })));
-  const filtered = models.filter(model => (type === "all" || type === model.type) &&
-    `${model.displayName} ${model.id} ${model.providerName}`.toLowerCase().includes(search.toLowerCase()));
+  const searchTerms = search.toLowerCase().trim().split(/[\s_-]+/).filter(Boolean);
+  const filtered = models.filter(model => {
+    const text = `${model.displayName} ${model.id} ${model.providerName}`.toLowerCase();
+    return (type === "all" || type === model.type) && searchTerms.every(term => text.includes(term));
+  });
   return <div className="space-y-6">
     <PageHeader title="Model Pricing" description="Set image and video cost estimates in USD. Saved prices apply only to jobs created after saving. Earlier jobs keep the price in effect when they were created. Provider billing is managed separately." />
     {query.error ? <ErrorState message={query.error} onRetry={query.refresh} /> : query.loading ? <PanelSkeleton rows={6} /> : <>

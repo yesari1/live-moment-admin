@@ -46,12 +46,6 @@ export const NAV_ITEMS: NavItem[] = [
     description: "Remote control of providers and models per context.",
   },
   {
-    to: "/model-pricing",
-    label: "Model Pricing",
-    icon: DollarSign,
-    description: "Manage image and video cost estimates in USD.",
-  },
-  {
     to: "/plans",
     label: "Plans",
     icon: Wallet,
@@ -68,6 +62,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Notifications",
     icon: Bell,
     description: "Multilingual reminders, campaigns and delivery insights.",
+  },
+  {
+    to: "/model-pricing",
+    label: "Model Pricing",
+    icon: DollarSign,
+    description: "Manage image and video cost estimates in USD.",
   },
   {
     to: "/app-settings",
