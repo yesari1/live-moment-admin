@@ -402,7 +402,7 @@ async function readCollection(
       ...(reporting && orderField
         ? [where(orderField, ">=", REPORTING_START_MS)]
         : []),
-      orderBy(orderField ?? documentId(), "desc"),
+      orderField ? orderBy(orderField, "desc") : orderBy(documentId()),
       ...(cursor ? [startAfter(cursor)] : []),
       limit(max),
     );
