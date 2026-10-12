@@ -1,9 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-20T12:00:00+03:00"));
+});
+afterEach(() => vi.useRealTimers());
 import {
+  buildDailySeries,
   buildCostSeries,
   buildUserSeries,
   computeMetrics,
 } from "@/services/analytics";
+
+it("anchors all trend charts to a historical custom range", () => {
+  const end = new Date("2026-10-20T23:59:59+03:00");
+  const recordDate = new Date("2026-10-19T12:00:00+03:00");
+  const cost = buildCostSeries(
+    [event({ startedAt: recordDate, estimatedCostUsd: 1.25 })],
+    2,
+    end,
+  );
+  const signups = buildUserSeries([user({ createdAt: recordDate })], 2, end);
+  const volume = buildDailySeries(
+    [generation({ createdAt: recordDate })],
+    2,
+    end,
+  );
+  expect(cost.map((p) => p.cost)).toEqual([1.25, 0]);
+  expect(signups.map((p) => p.value)).toEqual([1, 0]);
+  expect(volume.map((p) => p.value)).toEqual([1, 0]);
+  expect(cost[1].label).toBe("Oct 20");
+});
 import type { GenerationRecord, TestDeviceLabel, UsageEvent } from "@/types";
 
 function event(overrides: Partial<UsageEvent>): UsageEvent {
@@ -39,7 +65,9 @@ function user(overrides: Partial<MetricUser> = {}): MetricUser {
   return { createdAt: new Date(), ...overrides };
 }
 
-function generation(overrides: Partial<GenerationRecord> = {}): GenerationRecord {
+function generation(
+  overrides: Partial<GenerationRecord> = {},
+): GenerationRecord {
   return {
     id: "gen_1",
     uid: "u1",
@@ -84,7 +112,11 @@ describe("computeMetrics test account exclusion", () => {
     const users: MetricUser[] = [
       user({ createdAt: today, lastActiveAt: today }),
       user({ createdAt: today, lastActiveAt: today, testDevice: deviceLabel }),
-      user({ createdAt: today, lastActiveAt: today, testDevice: suspectedLabel }),
+      user({
+        createdAt: today,
+        lastActiveAt: today,
+        testDevice: suspectedLabel,
+      }),
     ];
 
     const metrics = computeMetrics(users, [], []);

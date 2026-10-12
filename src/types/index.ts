@@ -5,11 +5,7 @@ export type PlanId = "free" | "single" | "live_weather" | "live_weather_plus";
 export type GenerationType = "image" | "video";
 
 export type GenerationStatus =
-  | "queued"
-  | "processing"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "queued" | "processing" | "completed" | "failed" | "cancelled";
 
 /** Raw statuses stored by the Live Moment backend. */
 export type RawJobStatus =
@@ -25,17 +21,10 @@ export type RawJobStatus =
   | "expired";
 
 export type RoutingContext =
-  | "onboarding"
-  | "free"
-  | "single"
-  | "live_weather"
-  | "live_weather_plus";
+  "onboarding" | "free" | "single" | "live_weather" | "live_weather_plus";
 
 export type AccountStatus =
-  | "active"
-  | "disabled"
-  | "deletion_pending"
-  | "review";
+  "active" | "disabled" | "deletion_pending" | "review";
 
 /**
  * A Test Lab / pre-launch robot label read from `users/{uid}.testDevice`.
@@ -76,6 +65,9 @@ export interface AdminUser {
   testAccountOverride?: boolean;
   testLabelCleared?: boolean;
   hasPurchase?: boolean;
+  planExpiresAt?: Date | null;
+  planAutoRenewing?: boolean | null;
+  planProductId?: string | null;
 }
 
 export interface GenerationRecord {
@@ -163,12 +155,7 @@ export interface TemplatePromptVersion {
 
 /** A prompt-like value read from a template version document. */
 export type PromptValue =
-  | string
-  | number
-  | boolean
-  | Record<string, unknown>
-  | unknown[]
-  | null;
+  string | number | boolean | Record<string, unknown> | unknown[] | null;
 
 /** A single readable section of a template version (prompt, config, …). */
 export interface TemplateVersionSection {

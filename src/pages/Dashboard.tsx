@@ -1,30 +1,32 @@
 import * as React from "react";
 import {
-  Activity,
   BadgeDollarSign,
-  CircleX,
-  Image as ImageIcon,
-  TrendingUp,
+  CreditCard,
+  RefreshCw,
   UserPlus,
-  Users as UsersIcon,
-  Video,
+  Wallet,
 } from "lucide-react";
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   XAxis,
   YAxis,
 } from "recharts";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   ChartContainer,
   ChartLegend,
@@ -35,451 +37,644 @@ import {
 } from "@/components/ui/chart";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
-import { DateRangeFilter, resolveDateRange } from "@/components/shared/date-range-filter";
+import {
+  DateRangeFilter,
+  resolveDateRange,
+} from "@/components/shared/date-range-filter";
 import { ChartSkeleton } from "@/components/shared/loading-skeletons";
 import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
-import { GenerationStatusBadge } from "@/components/shared/status-badge";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { useModelCatalog } from "@/hooks/use-model-catalog";
 import {
-  fetchAuditLogs,
   fetchGenerations,
   fetchUsage,
   fetchUsers,
   mergeUserStats,
 } from "@/services/data-service";
 import {
-  breakdown,
   buildCostSeries,
   buildDailySeries,
   buildUserSeries,
   computeMetrics,
-  costByKey,
 } from "@/services/analytics";
 import {
-  formatCost,
-  formatDate,
-  formatNumber,
-  formatRelative,
-} from "@/lib/format";
+  fetchPurchases,
+  isGrantedPurchase,
+  purchaseLabel,
+  purchasesInRange,
+  summarizePurchases,
+} from "@/services/purchases";
 import {
-  getModelDisplayName,
-  getProviderDisplayName,
-} from "@/data/providers";
-import { planLabel } from "@/data/plans";
-import type { AuditLog, DateRange, GenerationRecord } from "@/types";
-
-const costConfig = {
-  cost: { label: "AI cost", color: "hsl(var(--chart-1))" },
-} satisfies ChartConfig;
+  formatCost,
+  formatCurrency,
+  formatDateTime,
+  formatNumber,
+} from "@/lib/format";
+import { isTestAccount } from "@/lib/test-accounts";
+import { isInReportingPeriod, reportingDayStart } from "@/lib/reporting";
+import type { DateRange } from "@/types";
 
 const volumeConfig = {
   image: { label: "Image", color: "hsl(var(--chart-1))" },
   video: { label: "Video", color: "hsl(var(--chart-3))" },
 } satisfies ChartConfig;
-
-const outcomeConfig = {
-  success: { label: "Success", color: "hsl(var(--chart-2))" },
-  failed: { label: "Failed", color: "hsl(var(--chart-5))" },
+const costConfig = {
+  cost: { label: "AI cost (USD)", color: "hsl(var(--chart-4))" },
 } satisfies ChartConfig;
-
 const usersConfig = {
-  value: { label: "Signups", color: "hsl(var(--chart-1))" },
+  value: { label: "Signups", color: "hsl(var(--chart-2))" },
 } satisfies ChartConfig;
-
-const PIE_COLORS = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
-];
+const poll = { pollIntervalMs: 60_000 };
 
 export function DashboardPage() {
-  useModelCatalog();
   const [range, setRange] = React.useState<DateRange>({
-    preset: "30d",
+    preset: "today",
     from: null,
     to: null,
   });
-  const rangeDates = React.useMemo(() => resolveDateRange(range), [range]);
-  const days = React.useMemo(() => {
-    if (range.preset === "today") return 1;
-    if (range.preset === "7d") return 7;
-    if (range.preset === "30d") return 30;
-    const { from, to } = rangeDates;
-    if (from && to) {
-      const diff = Math.ceil((to.getTime() - from.getTime()) / 86_400_000) + 1;
-      return Math.min(90, Math.max(1, diff));
-    }
-    return 30;
-  }, [range.preset, rangeDates]);
-
-  const users = useAsyncData(fetchUsers);
-  const generations = useAsyncData(fetchGenerations);
-  const usage = useAsyncData(fetchUsage);
-  const audit = useAsyncData(fetchAuditLogs);
-
+  const [purchaseType, setPurchaseType] = React.useState("all");
+  const [page, setPage] = React.useState(0);
+  const users = useAsyncData(fetchUsers, [], poll);
+  const generations = useAsyncData(fetchGenerations, [], poll);
+  const usage = useAsyncData(fetchUsage, [], poll);
+  const purchases = useAsyncData(fetchPurchases, [], poll);
   const loading = users.loading || generations.loading || usage.loading;
   const error = users.error ?? generations.error ?? usage.error;
-
+  // Resolve on every render, including background refreshes and midnight rollover.
+  const rangeDates = resolveDateRange(range);
+  const today = reportingDayStart();
+  const now = new Date();
   const enrichedUsers = React.useMemo(
     () =>
-      users.data && generations.data && usage.data
-        ? mergeUserStats(users.data, generations.data, usage.data)
-        : [],
+      mergeUserStats(
+        users.data ?? [],
+        generations.data ?? [],
+        usage.data ?? [],
+      ),
     [users.data, generations.data, usage.data],
   );
-
-  const metrics = React.useMemo(() => {
-    if (!generations.data || !usage.data) return null;
-    return computeMetrics(enrichedUsers, generations.data, usage.data);
-  }, [enrichedUsers, generations.data, usage.data]);
-
-  const series = React.useMemo(
-    () => buildDailySeries(generations.data ?? [], days),
-    [generations.data, days],
+  const metrics = computeMetrics(
+    enrichedUsers,
+    generations.data ?? [],
+    usage.data ?? [],
   );
-  const userSeries = React.useMemo(
-    () => buildUserSeries(enrichedUsers, days),
-    [enrichedUsers, days],
+  const realUsers = enrichedUsers.filter((user) => !isTestAccount(user));
+  const memberUids = new Set(
+    summarizePurchases(purchases.data ?? []).subscriptions.map((p) => p.uid),
   );
-  // Same source (generationUsageEvents.estimatedCostUsd) as the "AI cost today"
-  // card, so the chart's most recent bucket matches the card value.
-  const costSeries = React.useMemo(
-    () => buildCostSeries(usage.data ?? [], days),
-    [usage.data, days],
+  const paidMembers = realUsers.filter(
+    (user) => user.plan !== "free" && memberUids.has(user.uid),
   );
-
-  const rangeFiltered = React.useMemo(() => {
-    const { from, to } = rangeDates;
-    if (!from || !to) return generations.data ?? [];
-    const start = from.getTime();
-    const end = to.getTime();
-    return (generations.data ?? []).filter((g) => {
-      const t = g.createdAt?.getTime() ?? 0;
-      return t >= start && t <= end;
-    });
-  }, [generations.data, rangeDates]);
-
-  const byPlan = React.useMemo(
-    () => breakdown(rangeFiltered.map((g) => planLabel(planForGeneration(g, enrichedUsers)))),
-    [rangeFiltered, enrichedUsers],
+  const userById = new Map(enrichedUsers.map((user) => [user.uid, user]));
+  const todaysPurchases = purchasesInRange(purchases.data ?? [], today, now);
+  const sales = summarizePurchases(todaysPurchases);
+  const selectedPurchases = purchasesInRange(
+    purchases.data ?? [],
+    rangeDates.from,
+    rangeDates.to,
   );
-  const byModel = React.useMemo(
-    () =>
-      costByKey(rangeFiltered, (g) => getModelDisplayName(g.model))
-        .slice(0, 7)
-        .map((b) => ({ name: b.name, value: b.value })),
-    [rangeFiltered],
+  const selectedSales = summarizePurchases(selectedPurchases);
+  const filteredPurchases = selectedPurchases.filter(
+    (p) =>
+      purchaseType === "all" ||
+      (purchaseType === "subscription"
+        ? p.type === "subscription"
+        : p.type === "consumable" || p.type === "non_consumable"),
   );
-  const byProvider = React.useMemo(
-    () =>
-      breakdown(rangeFiltered.map((g) => getProviderDisplayName(g.actualProvider ?? g.provider))),
-    [rangeFiltered],
-  );
-
-  const todaysGenerations = React.useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    return (generations.data ?? []).filter(
-      (g) => (g.createdAt?.getTime() ?? 0) >= start.getTime(),
-    );
-  }, [generations.data]);
-
-  if (error) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Dashboard"
-          description="Live overview of users, generations and estimated AI cost."
-        />
-        <ErrorState
-          message={error}
-          onRetry={() => {
-            void users.refresh();
-            void generations.refresh();
-            void usage.refresh();
-          }}
-        />
-      </div>
-    );
-  }
+  const pageCount = Math.max(1, Math.ceil(filteredPurchases.length / 10));
+  const currentPage = Math.min(page, pageCount - 1);
+  const products = [...new Set(selectedSales.granted.map((p) => p.productId))]
+    .map((productId) => {
+      const records = selectedSales.granted.filter(
+        (p) => p.productId === productId,
+      );
+      return {
+        productId,
+        count: records.length,
+        buyers: new Set(records.map((p) => p.uid)).size,
+      };
+    })
+    .sort((a, b) => b.count - a.count);
+  const days =
+    range.preset === "today"
+      ? 1
+      : range.preset === "7d"
+        ? 7
+        : range.preset === "30d"
+          ? 30
+          : Math.max(
+              1,
+              Math.ceil(
+                ((rangeDates.to?.getTime() ?? now.getTime()) -
+                  (rangeDates.from?.getTime() ?? today.getTime())) /
+                  86_400_000,
+              ),
+            );
+  const seriesEnd = rangeDates.to ?? now;
+  const series = buildDailySeries(generations.data ?? [], days, seriesEnd);
+  const costSeries = buildCostSeries(usage.data ?? [], days, seriesEnd);
+  const userSeries = buildUserSeries(enrichedUsers, days, seriesEnd);
+  const refresh = () => {
+    void users.refresh();
+    void generations.refresh();
+    void usage.refresh();
+    void purchases.refresh();
+  };
+  const purchaseValue = (value: number | string) =>
+    purchases.error ? "Unavailable" : String(value);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description="Live overview of Live Moment users, generation activity and estimated AI cost."
-        actions={<DateRangeFilter value={range} onChange={setRange} />}
+        description="Today's sales, audience and AI spend at a glance."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refresh}
+            disabled={loading || purchases.loading}
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        }
       />
-
-      {/* Row 1 — audience and top-line activity. */}
+      {error && <ErrorState message={error} onRetry={refresh} />}
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span className="font-medium uppercase tracking-wider">
+          Today ·{" "}
+          {today.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          })}
+        </span>
+        <span>Daily totals · Europe/Istanbul · refreshes every minute</span>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Total users"
-          value={formatNumber(metrics?.totalUsers)}
-          icon={UsersIcon}
-          hint={`${formatNumber(metrics?.activeUsers7d)} active this week`}
-          loading={loading}
-        />
-        <StatCard
-          label="New users today"
-          value={formatNumber(metrics?.newUsersToday)}
-          icon={UserPlus}
-          hint={`${formatNumber(metrics?.newUsers7d)} in last 7 days`}
-          loading={loading}
-        />
-        <StatCard
-          label="Generations today"
-          value={formatNumber(
-            (metrics?.imageGenerationsToday ?? 0) +
-              (metrics?.videoGenerationsToday ?? 0),
-          )}
-          icon={Activity}
-          hint={`${formatNumber(metrics?.imageGenerationsToday)} image · ${formatNumber(metrics?.videoGenerationsToday)} video`}
-          loading={loading}
+          label="Revenue today"
+          value={purchaseValue(sales.revenue)}
+          icon={Wallet}
+          loading={purchases.loading}
+          hint={
+            purchases.error
+              ? "Purchase data could not be loaded"
+              : sales.missingAmounts
+                ? `${sales.missingAmounts} purchases have no recorded amount`
+                : `${sales.granted.length} granted purchases · gross recorded amount`
+          }
         />
         <StatCard
           label="AI cost today"
-          value={formatCost(metrics?.estimatedCostToday)}
+          value={error ? "Unavailable" : formatCost(metrics.estimatedCostToday)}
           icon={BadgeDollarSign}
-          hint={`${formatCost(metrics?.estimatedCostMonth)} this month`}
           loading={loading}
+          hint={`${formatCost(metrics.estimatedCostMonth)} this month · estimated USD`}
+        />
+        <StatCard
+          label="Membership buyers today"
+          value={purchaseValue(sales.subscriptionBuyers)}
+          icon={CreditCard}
+          loading={purchases.loading}
+          hint={`${sales.subscriptions.length} subscription purchases · ${paidMembers.length} current paid-plan users`}
+        />
+        <StatCard
+          label="New users today"
+          value={
+            users.error ? "Unavailable" : formatNumber(metrics.newUsersToday)
+          }
+          icon={UserPlus}
+          loading={loading}
+          hint={`${formatNumber(metrics.totalUsers)} registered since 12 Oct · test accounts excluded`}
         />
       </div>
-
-      {/* Row 2 — operational generation health. */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Active users today"
-          value={formatNumber(metrics?.activeUsersToday)}
-          icon={TrendingUp}
-          hint={`${formatNumber(metrics?.activeUsers7d)} in last 7 days`}
-          loading={loading}
-        />
-        <StatCard
-          label="Image generations today"
-          value={formatNumber(metrics?.imageGenerationsToday)}
-          icon={ImageIcon}
-          loading={loading}
-        />
-        <StatCard
-          label="Video generations today"
-          value={formatNumber(metrics?.videoGenerationsToday)}
-          icon={Video}
-          loading={loading}
-        />
-        <StatCard
-          label="Failed generations today"
-          value={formatNumber(metrics?.failedGenerationsToday)}
-          icon={CircleX}
-          hint={`${formatNumber(metrics?.successfulGenerationsToday)} succeeded`}
-          loading={loading}
+      <Card>
+        <CardContent className="grid gap-4 p-4 sm:grid-cols-3 sm:divide-x">
+          <div className="space-y-1 sm:pr-4">
+            <p className="text-xs text-muted-foreground">
+              One-time purchases today
+            </p>
+            <p className="text-xl font-semibold tabular-nums">
+              {purchases.loading ? "—" : purchaseValue(sales.oneTime.length)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {sales.oneTime.filter((p) => p.productId === "one_time_1").length}{" "}
+              single wallpapers ·{" "}
+              {sales.oneTime.filter((p) => p.productId === "one_time_3").length}{" "}
+              3-packs
+            </p>
+          </div>
+          <div className="space-y-1 sm:px-4">
+            <p className="text-xs text-muted-foreground">Active users today</p>
+            <p className="text-xl font-semibold tabular-nums">
+              {loading
+                ? "—"
+                : users.error
+                  ? "Unavailable"
+                  : metrics.activeUsersToday}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {metrics.activeUsers7d} active in the last 7 days
+            </p>
+          </div>
+          <div className="space-y-1 sm:pl-4">
+            <p className="text-xs text-muted-foreground">Generations today</p>
+            <p className="text-xl font-semibold tabular-nums">
+              {loading
+                ? "—"
+                : error
+                  ? "Unavailable"
+                  : metrics.imageGenerationsToday +
+                    metrics.videoGenerationsToday}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {metrics.imageGenerationsToday} image ·{" "}
+              {metrics.videoGenerationsToday} video ·{" "}
+              {metrics.failedGenerationsToday} failed
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-6">
+        <div>
+          <h2 className="font-semibold">Purchase activity & trends</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            The date filter applies below. Today's cards stay fixed.
+          </p>
+        </div>
+        <DateRangeFilter
+          value={range}
+          onChange={(value) => {
+            setRange(value);
+            setPage(0);
+          }}
         />
       </div>
-
+      {purchases.error ? (
+        <ErrorState
+          message={`Purchases could not be loaded: ${purchases.error}`}
+          onRetry={() => void purchases.refresh()}
+        />
+      ) : (
+        <>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+                <div>
+                  <CardTitle className="text-sm">Purchases</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {selectedSales.granted.length} granted ·{" "}
+                    {selectedSales.buyers} buyers · {selectedPurchases.length}{" "}
+                    records in selected period
+                  </p>
+                </div>
+                <div
+                  className="flex gap-1"
+                  role="group"
+                  aria-label="Purchase type"
+                >
+                  {[
+                    ["all", "All"],
+                    ["subscription", "Memberships"],
+                    ["one_time", "One-time"],
+                  ].map(([value, label]) => (
+                    <Button
+                      key={value}
+                      size="sm"
+                      variant={purchaseType === value ? "secondary" : "ghost"}
+                      aria-pressed={purchaseType === value}
+                      onClick={() => {
+                        setPurchaseType(value);
+                        setPage(0);
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {purchases.loading ? (
+                  <ChartSkeleton />
+                ) : !filteredPurchases.length ? (
+                  <EmptyState
+                    title="No purchases in this period"
+                    description="Verified membership and one-time purchases will appear here."
+                    className="border-0"
+                  />
+                ) : (
+                  <>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Customer / first recorded</TableHead>
+                          <TableHead>Product</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredPurchases
+                          .slice(currentPage * 10, currentPage * 10 + 10)
+                          .map((p) => (
+                            <TableRow key={p.id}>
+                              <TableCell>
+                                <Link
+                                  to={`/users?uid=${encodeURIComponent(p.uid)}`}
+                                  className="block max-w-[220px] truncate font-medium"
+                                  title={p.uid}
+                                >
+                                  {userById.get(p.uid)?.email ??
+                                    (p.uid || "Unknown user")}
+                                </Link>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatDateTime(p.purchasedAt)}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <span className="block whitespace-nowrap">
+                                  {purchaseLabel(p)}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {p.type === "subscription"
+                                    ? "Membership"
+                                    : "One-time"}
+                                  {p.credits > 0
+                                    ? ` · ${p.credits} credits`
+                                    : ""}
+                                </span>
+                                {p.orderId && (
+                                  <span className="block text-xs text-muted-foreground font-mono">
+                                    {p.orderId}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    isGrantedPurchase(p) ? "muted" : "outline"
+                                  }
+                                >
+                                  {p.state}
+                                </Badge>
+                                {p.testPurchase && (
+                                  <Badge variant="outline" className="ml-1">
+                                    Test
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums whitespace-nowrap">
+                                {p.amount !== null && p.currency ? (
+                                  formatCurrency(p.amount, p.currency)
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">
+                                    Not recorded
+                                  </span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                    <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        Page {currentPage + 1} of {pageCount}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={currentPage === 0}
+                          onClick={() => setPage(currentPage - 1)}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={currentPage + 1 >= pageCount}
+                          onClick={() => setPage(currentPage + 1)}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+                  Verified Google Play orders use their transaction dates and
+                  include separate subscription renewals. Legacy records use
+                  their first recorded date. Test payments, pending, cancelled
+                  and refunded orders are excluded from sales totals.
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Purchased products</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Granted purchases in the selected period
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {purchases.loading ? (
+                  <ChartSkeleton />
+                ) : !products.length ? (
+                  <p className="text-sm text-muted-foreground">
+                    No granted purchases.
+                  </p>
+                ) : (
+                  products.map((product) => (
+                    <div key={product.productId} className="space-y-2">
+                      <div className="flex justify-between gap-2 text-sm">
+                        <span>{purchaseLabel(product)}</span>
+                        <span className="font-semibold tabular-nums">
+                          {product.count}
+                        </span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{
+                            width: `${(product.count / selectedSales.granted.length) * 100}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {product.buyers} unique buyers
+                      </p>
+                    </div>
+                  ))
+                )}
+                <div className="border-t pt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Recorded revenue
+                  </p>
+                  <p className="mt-1 text-lg font-semibold">
+                    {selectedSales.revenue}
+                  </p>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {selectedSales.missingAmounts
+                      ? "Some purchases have no recoverable payment amount. Revenue is incomplete; catalog prices are not substituted for actual payments."
+                      : "Gross recorded amounts, grouped by currency. Store fees and taxes are not deducted."}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
-          title="Generations over time"
-          description="Image vs video generations per day."
+          title="AI cost"
+          description="Daily estimated spend in USD from usage events."
+          loading={loading}
+          config={costConfig}
+        >
+          <AreaChart data={costSeries}>
+            <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={24}
+            />
+            <YAxis
+              width={64}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(value) => `$${Number(value).toFixed(2)}`}
+            />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  formatter={(value) => formatCost(Number(value))}
+                />
+              }
+            />
+            <Area
+              dataKey="cost"
+              dot={days === 1}
+              type="linear"
+              stroke="var(--color-cost)"
+              fill="var(--color-cost)"
+              fillOpacity={0.15}
+              strokeWidth={2}
+            />
+          </AreaChart>
+        </ChartCard>
+        <ChartCard
+          title="Generations"
+          description="Image and video volume in the selected period."
           loading={loading}
           config={volumeConfig}
         >
           <AreaChart data={series}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} />
-            <YAxis tickLine={false} axisLine={false} width={32} />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={24}
+            />
+            <YAxis
+              width={32}
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+            />
             <ChartTooltip content={<ChartTooltipContent />} />
             <ChartLegend content={<ChartLegendContent />} />
             <Area
               dataKey="image"
-              type="monotone"
+              dot={days === 1}
+              type="linear"
               stackId="1"
               stroke="var(--color-image)"
               fill="var(--color-image)"
-              fillOpacity={0.25}
-              strokeWidth={2}
+              fillOpacity={0.2}
             />
             <Area
               dataKey="video"
-              type="monotone"
+              dot={days === 1}
+              type="linear"
               stackId="1"
               stroke="var(--color-video)"
               fill="var(--color-video)"
-              fillOpacity={0.25}
-              strokeWidth={2}
+              fillOpacity={0.2}
             />
           </AreaChart>
         </ChartCard>
-
         <ChartCard
           title="New users"
-          description="Daily registrations in the selected period."
+          description="Daily registrations; test accounts excluded."
           loading={loading}
           config={usersConfig}
         >
           <LineChart data={userSeries}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} />
-            <YAxis tickLine={false} axisLine={false} width={32} allowDecimals={false} />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={24}
+            />
+            <YAxis
+              width={32}
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+            />
             <ChartTooltip content={<ChartTooltipContent />} />
             <Line
               dataKey="value"
-              type="monotone"
+              type="linear"
               stroke="var(--color-value)"
               strokeWidth={2}
-              dot={false}
+              dot={days === 1}
             />
           </LineChart>
         </ChartCard>
-
-        <ChartCard
-          title="Success vs failure"
-          description="Generation outcomes per day."
-          loading={loading}
-          config={outcomeConfig}
-        >
-          <BarChart data={series}>
-            <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} />
-            <YAxis tickLine={false} axisLine={false} width={32} />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <ChartLegend content={<ChartLegendContent />} />
-            <Bar dataKey="success" stackId="a" fill="var(--color-success)" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="failed" stackId="a" fill="var(--color-failed)" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ChartCard>
-
-        <ChartCard
-          title="Generations by plan"
-          description="Selected period."
-          loading={loading}
-          config={{ value: { label: "Generations", color: "hsl(var(--chart-1))" } }}
-        >
-          <BarChart data={byPlan} layout="vertical" margin={{ left: 8 }}>
-            <CartesianGrid horizontal={false} strokeDasharray="3 3" />
-            <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
-            <YAxis
-              type="category"
-              dataKey="name"
-              tickLine={false}
-              axisLine={false}
-              width={110}
-            />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <Bar dataKey="value" fill="var(--color-value)" radius={[0, 3, 3, 0]} />
-          </BarChart>
-        </ChartCard>
-
-        <ChartCard
-          title="Generations by model"
-          description="Top models in the selected period."
-          loading={loading}
-          config={{ value: { label: "Generations", color: "hsl(var(--chart-3))" } }}
-        >
-          <BarChart data={byModel} layout="vertical" margin={{ left: 8 }}>
-            <CartesianGrid horizontal={false} strokeDasharray="3 3" />
-            <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
-            <YAxis
-              type="category"
-              dataKey="name"
-              tickLine={false}
-              axisLine={false}
-              width={150}
-            />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <Bar dataKey="value" fill="var(--color-value)" radius={[0, 3, 3, 0]} />
-          </BarChart>
-        </ChartCard>
-
-        <ChartCard
-          title="Generations by provider"
-          description="Selected period."
-          loading={loading}
-          config={{ value: { label: "Generations" } }}
-        >
-          <PieChart>
-            <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
-            <Pie
-              data={byProvider}
-              dataKey="value"
-              nameKey="name"
-              innerRadius={55}
-              outerRadius={90}
-              paddingAngle={2}
-            >
-              {byProvider.map((entry, index) => (
-                <Cell
-                  key={entry.name}
-                  fill={PIE_COLORS[index % PIE_COLORS.length]}
-                />
-              ))}
-            </Pie>
-            <ChartLegend content={<ChartLegendContent nameKey="name" />} />
-          </PieChart>
-        </ChartCard>
-
-        <ChartCard
-          title="Recent activity"
-          description="Latest generations and admin changes."
-          loading={audit.loading}
-        >
-          <RecentActivity
-            generations={todaysGenerations.length ? todaysGenerations : generations.data ?? []}
-            audit={audit.data ?? []}
-          />
-        </ChartCard>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Memberships since 12 Oct</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Paid members require a real purchase since 12 Oct; free users
+              registered since 12 Oct
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {[
+              ["live_weather", "LiveWeather"],
+              ["live_weather_plus", "LiveWeather Plus"],
+              ["free", "Free"],
+            ].map(([plan, label]) => (
+              <div
+                key={plan}
+                className="flex justify-between border-b pb-3 text-sm"
+              >
+                <span>{label}</span>
+                <span className="font-semibold tabular-nums">
+                  {loading
+                    ? "—"
+                    : (plan === "free"
+                        ? realUsers.filter((user) =>
+                            isInReportingPeriod(user.createdAt),
+                          )
+                        : paidMembers
+                      ).filter((user) => user.plan === plan).length}
+                </span>
+              </div>
+            ))}
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/users">View users</Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
-
-      <ChartCard
-        title="AI Cost Trend"
-        description={`Daily estimated provider cost from usage events (USD) · last ${days} day${
-          days === 1 ? "" : "s"
-        }`}
-        loading={loading}
-        config={costConfig}
-      >
-        <AreaChart data={costSeries}>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" />
-          <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} />
-          <YAxis
-            tickLine={false}
-            axisLine={false}
-            width={64}
-            tickFormatter={(value) => formatCost(Number(value))}
-          />
-          <ChartTooltip
-            content={
-              <ChartTooltipContent
-                formatter={(value) => (
-                  <span className="font-mono font-medium tabular-nums text-foreground">
-                    {formatCost(Number(value))}
-                  </span>
-                )}
-              />
-            }
-          />
-          <Area
-            dataKey="cost"
-            type="monotone"
-            stroke="var(--color-cost)"
-            fill="var(--color-cost)"
-            fillOpacity={0.2}
-            strokeWidth={2}
-          />
-        </AreaChart>
-      </ChartCard>
     </div>
   );
-}
-
-function planForGeneration(
-  generation: GenerationRecord,
-  users: { uid: string; plan: string }[],
-) {
-  return users.find((u) => u.uid === generation.uid)?.plan ?? "free";
 }
 
 function ChartCard({
@@ -490,117 +685,26 @@ function ChartCard({
   children,
 }: {
   title: string;
-  description?: string;
-  config?: ChartConfig;
-  loading?: boolean;
+  description: string;
+  config: ChartConfig;
+  loading: boolean;
   children: React.ReactElement;
 }) {
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm">{title}</CardTitle>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
+        <p className="text-xs text-muted-foreground">{description}</p>
       </CardHeader>
       <CardContent>
         {loading ? (
           <ChartSkeleton />
-        ) : config ? (
-          <ChartContainer config={config} className="h-[260px] w-full">
+        ) : (
+          <ChartContainer config={config} className="h-[240px] w-full">
             {children}
           </ChartContainer>
-        ) : (
-          children
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function RecentActivity({
-  generations,
-  audit,
-}: {
-  generations: GenerationRecord[];
-  audit: AuditLog[];
-}) {
-  const sorted = [...generations]
-    .filter((g) => g.createdAt)
-    .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
-    .slice(0, 5);
-
-  const sortedAudit = [...audit]
-    .filter((a) => a.createdAt)
-    .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
-    .slice(0, 4);
-
-  if (!sorted.length && !sortedAudit.length) {
-    return (
-      <EmptyState
-        title="No recent activity"
-        description="Activity will appear here as generations and admin changes occur."
-        className="border-0 bg-transparent"
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Recent generations
-        </p>
-        {sorted.length ? (
-          sorted.map((g) => (
-            <div
-              key={g.id}
-              className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm">
-                  {g.userEmail ?? g.uid}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {g.type === "image" ? "Image" : "Video"} ·{" "}
-                  {getModelDisplayName(g.model)} · {formatRelative(g.createdAt)}
-                </p>
-              </div>
-              <GenerationStatusBadge status={g.status} />
-            </div>
-          ))
-        ) : (
-          <p className="text-xs text-muted-foreground">No generations yet.</p>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Recent admin changes
-        </p>
-        {sortedAudit.length ? (
-          sortedAudit.map((entry) => (
-            <div
-              key={entry.id}
-              className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm">{entry.action.replace(/_/g, " ")}</p>
-                <p className="text-xs text-muted-foreground">
-                  {entry.target} · {formatDate(entry.createdAt)}
-                </p>
-              </div>
-              <Badge variant="muted" className="shrink-0">
-                Audit
-              </Badge>
-            </div>
-          ))
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            No configuration changes recorded.
-          </p>
-        )}
-      </div>
-    </div>
   );
 }

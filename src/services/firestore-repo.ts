@@ -13,6 +13,7 @@ import {
   setDoc,
   startAfter,
   updateDoc,
+  where,
   type DocumentData,
   type Query,
   type QueryDocumentSnapshot,
@@ -20,6 +21,7 @@ import {
 } from "firebase/firestore";
 import { getDb } from "@/lib/firebase";
 import { toDate } from "@/lib/format";
+import { REPORTING_START_MS } from "@/lib/reporting";
 import type {
   AccountStatus,
   AdminUser,
@@ -140,9 +142,7 @@ export function mapUser(id: string, data: RawDoc): AdminUser {
     credits: num(data.standaloneWallpapersGranted) ?? 0,
     createdAt: toDate(data.createdAt as never),
     lastLoginAt: toDate(data.lastLoginAt as never),
-    lastActiveAt: toDate(
-      (data.lastActiveAt ?? data.lastLoginAt) as never,
-    ),
+    lastActiveAt: toDate((data.lastActiveAt ?? data.lastLoginAt) as never),
     lastGenerationAt: toDate(data.lastGenerationAt as never),
     imageGenerationCount: num(data.imageGenerationCount) ?? 0,
     videoGenerationCount: num(data.videoGenerationCount) ?? 0,
@@ -150,14 +150,23 @@ export function mapUser(id: string, data: RawDoc): AdminUser {
     estimatedTotalCost: num(data.estimatedTotalCost) ?? 0,
     freePreviewUsed: bool(data.freePreviewUsed),
     billingVerified: bool(data.billingVerified),
+    planExpiresAt: toDate(data.planExpiresAtEpochMs as never),
+    planAutoRenewing:
+      typeof data.planAutoRenewing === "boolean" ? data.planAutoRenewing : null,
+    planProductId: str(data.planProductId),
     providers: Array.isArray(data.providers)
       ? (data.providers as string[])
       : [],
     testDevice: mapTestDevice(data.testDevice),
-    testAccountOverride: isRecord(data.testDevice) && typeof data.testDevice.manual === "boolean"
-      ? data.testDevice.manual : undefined,
-    testLabelCleared: isRecord(data.testDevice) && data.testDevice.suspected === false,
-    hasPurchase: bool(data.billingVerified) || !!data.planProductId ||
+    testAccountOverride:
+      isRecord(data.testDevice) && typeof data.testDevice.manual === "boolean"
+        ? data.testDevice.manual
+        : undefined,
+    testLabelCleared:
+      isRecord(data.testDevice) && data.testDevice.suspected === false,
+    hasPurchase:
+      bool(data.billingVerified) ||
+      !!data.planProductId ||
       (num(data.standaloneWallpapersGranted) ?? 0) > 0,
   };
 }
@@ -171,8 +180,7 @@ export function mapGeneration(id: string, data: RawDoc): GenerationRecord {
         : "video";
   const modelId = type === "image" ? data.imageModelId : data.videoModelId;
   const fallbackUsed = bool(data.fallbackUsed);
-  const actualProvider =
-    str(data.actualProvider) ?? str(data.provider);
+  const actualProvider = str(data.actualProvider) ?? str(data.provider);
   const err = str(data.errorCode);
   const rawStatus = (data.status as RawJobStatus) ?? "queued";
   const status = normalizeStatus(rawStatus);
@@ -189,13 +197,15 @@ export function mapGeneration(id: string, data: RawDoc): GenerationRecord {
       data.completedAtEpochMs ??
       (isTerminal ? data.updatedAtEpochMs : undefined)) as never,
   );
-  const explicitDurationMs = numLike(data.durationMs) ?? numLike(data.outputDurationMs);
+  const explicitDurationMs =
+    numLike(data.durationMs) ?? numLike(data.outputDurationMs);
   return {
     id: str(data.id) ?? id,
     uid: str(data.uid) ?? str(data.ownerUid) ?? "",
     userEmail: str(data.userEmail),
     type,
-    routingContext: (data.routingContext as GenerationRecord["routingContext"]) ?? null,
+    routingContext:
+      (data.routingContext as GenerationRecord["routingContext"]) ?? null,
     status,
     rawStatus,
     provider: str(data.provider),
@@ -218,7 +228,8 @@ export function mapGeneration(id: string, data: RawDoc): GenerationRecord {
     ),
     completedAt,
     durationMs: explicitDurationMs,
-    estimatedCost: numLike(data.estimatedCost) ?? numLike(data.estimatedCostUsd),
+    estimatedCost:
+      numLike(data.estimatedCost) ?? numLike(data.estimatedCostUsd),
     currency: str(data.currency) ?? "USD",
     errorCode: err,
     errorMessage: str(data.errorMessage),
@@ -236,8 +247,7 @@ export function mapUsageEvent(id: string, data: RawDoc) {
     provider: str(data.provider) ?? "unknown",
     model: str(data.model) ?? "unknown",
     status: (data.status === "failure" ? "failure" : "success") as
-      | "success"
-      | "failure",
+      "success" | "failure",
     estimatedCostUsd: num(data.estimatedCostUsd),
     estimatedCostTry: num(data.estimatedCostTry),
     requestedDurationSeconds: numLike(data.requestedDurationSeconds),
@@ -313,7 +323,8 @@ export function mapFeedback(id: string, data: RawDoc): FeedbackRecord {
   };
 }
 
-function mapTemplate(id: string, data: RawDoc): TemplateRecord {  return {
+function mapTemplate(id: string, data: RawDoc): TemplateRecord {
+  return {
     id: str(data.id) ?? id,
     title: str(data.title) ?? id,
     description: str(data.description) ?? "",
@@ -378,24 +389,35 @@ async function readCollection(
   map: (id: string, data: RawDoc) => unknown,
   max = 1000,
   orderField?: string,
+  reporting = false,
 ) {
   const db = getDb();
   if (!db) return null;
   const ref = collection(db, name);
-  const q = orderField
-    ? query(ref, orderBy(orderField, "desc"), limit(max))
-    : query(ref, limit(max));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => map(d.id, d.data() as RawDoc));
+  const records: unknown[] = [];
+  let cursor: QueryDocumentSnapshot | undefined;
+  for (;;) {
+    const q = query(
+      ref,
+      ...(reporting && orderField
+        ? [where(orderField, ">=", REPORTING_START_MS)]
+        : []),
+      orderBy(orderField ?? documentId(), "desc"),
+      ...(cursor ? [startAfter(cursor)] : []),
+      limit(max),
+    );
+    const snapshot = await getDocs(q);
+    records.push(...snapshot.docs.map((d) => map(d.id, d.data() as RawDoc)));
+    if (snapshot.size < max) break;
+    cursor = snapshot.docs[snapshot.docs.length - 1];
+  }
+  return records;
 }
 
 export async function fetchUsersFromFirestore(): Promise<AdminUser[] | null> {
   try {
-    return (await readCollection(
-      COLLECTIONS.users,
-      mapUser,
-      2000,
-    )) as AdminUser[] | null;
+    return (await readCollection(COLLECTIONS.users, mapUser, 2000)) as
+      AdminUser[] | null;
   } catch (error) {
     console.warn("[admin] Failed to read users from Firestore", error);
     return null;
@@ -411,6 +433,7 @@ export async function fetchGenerationsFromFirestore(): Promise<
       mapGeneration,
       2000,
       "createdAtEpochMs",
+      true,
     )) as GenerationRecord[] | null;
   } catch (error) {
     console.warn("[admin] Failed to read generationJobs from Firestore", error);
@@ -425,6 +448,7 @@ export async function fetchUsageFromFirestore() {
       mapUsageEvent,
       3000,
       "startedAtEpochMs",
+      true,
     )) as ReturnType<typeof mapUsageEvent>[] | null;
   } catch (error) {
     console.warn("[admin] Failed to read generationUsageEvents", error);
@@ -441,9 +465,11 @@ export async function fetchAiModelsFromFirestore(): Promise<
   ModelInfo[] | null
 > {
   try {
-    const models = (await readCollection(COLLECTIONS.models, mapAiModel, 1000)) as
-      | (ModelInfo | null)[]
-      | null;
+    const models = (await readCollection(
+      COLLECTIONS.models,
+      mapAiModel,
+      1000,
+    )) as (ModelInfo | null)[] | null;
     if (!models) return null;
     return models.filter((model): model is ModelInfo => model !== null);
   } catch (error) {
@@ -457,9 +483,10 @@ export async function fetchAiModelsFromFirestore(): Promise<
  * backend actually bills. Both shapes are honoured: a flat per-request price
  * (`flatUsd`/`usdPerImage`) and a per-second price (`usdPerSecond`).
  */
-export async function fetchModelRatesFromFirestore(): Promise<
-  Record<string, ModelRate> | null
-> {
+export async function fetchModelRatesFromFirestore(): Promise<Record<
+  string,
+  ModelRate
+> | null> {
   const db = getDb();
   if (!db) return null;
   try {
@@ -554,9 +581,7 @@ export async function fetchTemplatesFromFirestore(): Promise<
 
 /* ----------------------------------------------------- template versions */
 
-function inlineVersions(
-  data: RawDoc,
-): TemplateVersionRecord[] | null {
+function inlineVersions(data: RawDoc): TemplateVersionRecord[] | null {
   const raw = data.versions;
   if (Array.isArray(raw)) {
     return raw.map((entry, index) => {
@@ -613,9 +638,7 @@ function compareVersions(
   const av = a.versionNumber ?? -1;
   const bv = b.versionNumber ?? -1;
   if (bv !== av) return bv - av;
-  return (
-    (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0)
-  );
+  return (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0);
 }
 
 export async function fetchRoutingFromFirestore(
@@ -677,8 +700,7 @@ export async function fetchPlansFromFirestore(): Promise<PlanConfig[] | null> {
     if (snapshot.empty) return DEFAULT_PLANS;
     const found = snapshot.docs.map((d) => {
       const data = d.data() as RawDoc;
-      const base =
-        DEFAULT_PLANS.find((p) => p.id === d.id) ?? DEFAULT_PLANS[0];
+      const base = DEFAULT_PLANS.find((p) => p.id === d.id) ?? DEFAULT_PLANS[0];
       // The backend prefers the `*PerCycle` names; older documents may still
       // carry only the legacy aliases, so accept either.
       const regenerations =
@@ -688,7 +710,9 @@ export async function fetchPlansFromFirestore(): Promise<PlanConfig[] | null> {
         ...base,
         ...data,
         id: d.id,
-        ...(regenerations !== null ? { regenerationsPerCycle: regenerations } : {}),
+        ...(regenerations !== null
+          ? { regenerationsPerCycle: regenerations }
+          : {}),
       } as PlanConfig;
     });
     // Preserve canonical ordering, appending any extra plans.
@@ -870,7 +894,9 @@ export async function saveTemplateToFirestore(
   }
 }
 
-export async function deleteTemplateFromFirestore(id: string): Promise<boolean> {
+export async function deleteTemplateFromFirestore(
+  id: string,
+): Promise<boolean> {
   const db = getDb();
   if (!db) return false;
   try {

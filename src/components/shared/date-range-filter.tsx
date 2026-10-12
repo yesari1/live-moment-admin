@@ -11,6 +11,12 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { DateRange } from "@/types";
+import {
+  clampReportingStart,
+  reportingDateKey,
+  reportingDayStart,
+  REPORTING_START_DATE,
+} from "@/lib/reporting";
 
 interface DateRangeFilterProps {
   value: DateRange;
@@ -32,17 +38,21 @@ export function DateRangeFilter({
 }: DateRangeFilterProps) {
   const [open, setOpen] = React.useState(false);
   const [from, setFrom] = React.useState(
-    value.from ? value.from.toISOString().slice(0, 10) : "",
+    value.from
+      ? reportingDateKey(clampReportingStart(value.from))
+      : REPORTING_START_DATE,
   );
   const [to, setTo] = React.useState(
-    value.to ? value.to.toISOString().slice(0, 10) : "",
+    value.to ? reportingDateKey(value.to) : reportingDateKey(new Date()),
   );
 
   const applyCustom = () => {
     onChange({
       preset: "custom",
-      from: from ? new Date(`${from}T00:00:00`) : null,
-      to: to ? new Date(`${to}T23:59:59`) : null,
+      from: from
+        ? clampReportingStart(new Date(`${from}T00:00:00+03:00`))
+        : null,
+      to: to ? new Date(`${to}T23:59:59.999+03:00`) : null,
     });
     setOpen(false);
   };
@@ -85,8 +95,10 @@ export function DateRangeFilter({
             <Input
               id="range-from"
               type="date"
+              min={REPORTING_START_DATE}
               value={from}
               onChange={(e) => setFrom(e.target.value)}
+              onInput={(e) => setFrom(e.currentTarget.value)}
             />
           </div>
           <div className="space-y-1.5">
@@ -96,11 +108,18 @@ export function DateRangeFilter({
             <Input
               id="range-to"
               type="date"
+              min={from || REPORTING_START_DATE}
               value={to}
               onChange={(e) => setTo(e.target.value)}
+              onInput={(e) => setTo(e.currentTarget.value)}
             />
           </div>
-          <Button size="sm" className="w-full" onClick={applyCustom}>
+          <Button
+            size="sm"
+            className="w-full"
+            onClick={applyCustom}
+            disabled={!from || !to || from > to || from < REPORTING_START_DATE}
+          >
             Apply range
           </Button>
         </PopoverContent>
@@ -116,15 +135,14 @@ export function resolveDateRange(range: DateRange): {
 } {
   const now = new Date();
   if (range.preset === "today") {
-    const from = new Date();
-    from.setHours(0, 0, 0, 0);
-    return { from, to: now };
+    return { from: clampReportingStart(reportingDayStart(now)), to: now };
   }
   if (range.preset === "7d" || range.preset === "30d") {
     const days = range.preset === "7d" ? 7 : 30;
-    const from = new Date(now.getTime() - days * 86_400_000);
-    from.setHours(0, 0, 0, 0);
-    return { from, to: now };
+    const from = new Date(
+      reportingDayStart(now).getTime() - (days - 1) * 86_400_000,
+    );
+    return { from: clampReportingStart(from), to: now };
   }
-  return { from: range.from, to: range.to };
+  return { from: clampReportingStart(range.from), to: range.to ?? now };
 }

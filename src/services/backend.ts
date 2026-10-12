@@ -78,6 +78,77 @@ export async function backendDeleteUser(
   });
 }
 
+export interface QuotaCounters {
+  images: number;
+  motions: number;
+  regenerations: number;
+}
+
+export interface QuotaSnapshot {
+  cycleKey: string;
+  imageCount: number;
+  videoCount: number;
+  replacementCount: number;
+  dailyCount: number;
+  grant: { images: number; videos: number; regenerations: number };
+}
+
+export interface QuotaHistoryEntry {
+  id: string;
+  adminUid: string;
+  action: "grant" | "reset";
+  delta: QuotaCounters;
+  reason: string;
+  cycleKey: string;
+  before: QuotaSnapshot;
+  after: QuotaSnapshot;
+  createdAtEpochMs: number;
+}
+
+export interface QuotaOverview {
+  uid: string;
+  plan: string;
+  cycle: "lifetime" | "billing_period" | "month";
+  cycleKey: string;
+  planLimits: QuotaCounters;
+  adminGrant: QuotaCounters;
+  effectiveLimits: QuotaCounters;
+  used: QuotaCounters;
+  standaloneWallpapersGranted: number;
+  freePreviewUsed: boolean;
+  history: QuotaHistoryEntry[];
+}
+
+export type QuotaAdjustment = {
+  reason: string;
+  requestId: string;
+} & ({ action: "grant" } & QuotaCounters | { action: "reset" });
+
+export interface QuotaAdjustmentResult {
+  auditId: string;
+  replayed: boolean;
+  before: QuotaSnapshot;
+  after: QuotaSnapshot;
+  overview: QuotaOverview;
+}
+
+export async function backendGetQuota(uid: string, idToken: string): Promise<QuotaOverview> {
+  const response = await adminFetch(`/v1/admin/users/${encodeURIComponent(uid)}/quota`, idToken);
+  return response.json();
+}
+
+export async function backendAdjustQuota(
+  uid: string,
+  idToken: string,
+  adjustment: QuotaAdjustment,
+): Promise<QuotaAdjustmentResult> {
+  const response = await adminFetch(`/v1/admin/users/${encodeURIComponent(uid)}/quota`, idToken, {
+    method: "POST",
+    body: JSON.stringify(adjustment),
+  });
+  return response.json();
+}
+
 /**
  * Placeholder for privileged actions that must be implemented on the trusted
  * backend (Cloud Run / Firebase Admin SDK). Until those endpoints exist the

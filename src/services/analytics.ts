@@ -7,6 +7,13 @@ import type {
 } from "@/types";
 import { toDate } from "@/lib/format";
 import { isTestAccount, type TestAccountInput } from "@/lib/test-accounts";
+import {
+  isInReportingPeriod,
+  reportingRecords,
+  REPORTING_START_MS,
+  reportingDayStart,
+  reportingDateKey,
+} from "@/lib/reporting";
 
 const DAY_MS = 86_400_000;
 
@@ -39,11 +46,12 @@ export function computeMetrics(
   usageEvents: UsageEvent[],
 ): DashboardMetrics {
   const now = Date.now();
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  const startOfToday = reportingDayStart();
+  const monthStart = new Date(
+    `${reportingDateKey(new Date()).slice(0, 7)}-01T00:00:00+03:00`,
+  );
+  generations = reportingRecords(generations, (g) => g.createdAt);
+  usageEvents = reportingRecords(usageEvents, (e) => e.startedAt);
 
   const created = (d: Date | null | undefined) => d?.getTime() ?? 0;
 
@@ -61,7 +69,8 @@ export function computeMetrics(
     );
     if (!settled.length) return 100;
     return (
-      (settled.filter((g) => g.status === "completed").length / settled.length) *
+      (settled.filter((g) => g.status === "completed").length /
+        settled.length) *
       100
     );
   };
@@ -72,16 +81,22 @@ export function computeMetrics(
       .reduce((sum, e) => sum + (e.estimatedCostUsd ?? 0), 0);
 
   return {
-    totalUsers: realUsers.length,
-    newUsersToday: realUsers.filter((u) => created(u.createdAt) >= startOfToday.getTime())
+    totalUsers: realUsers.filter((u) => isInReportingPeriod(u.createdAt))
       .length,
-    newUsers7d: realUsers.filter((u) => created(u.createdAt) >= now - 7 * DAY_MS)
-      .length,
+    newUsersToday: realUsers.filter(
+      (u) => created(u.createdAt) >= startOfToday.getTime(),
+    ).length,
+    newUsers7d: realUsers.filter(
+      (u) =>
+        created(u.createdAt) >= Math.max(REPORTING_START_MS, now - 7 * DAY_MS),
+    ).length,
     activeUsersToday: realUsers.filter(
       (u) => created(u.lastActiveAt ?? u.lastLoginAt) >= startOfToday.getTime(),
     ).length,
     activeUsers7d: realUsers.filter(
-      (u) => created(u.lastActiveAt ?? u.lastLoginAt) >= now - 7 * DAY_MS,
+      (u) =>
+        created(u.lastActiveAt ?? u.lastLoginAt) >=
+        Math.max(REPORTING_START_MS, now - 7 * DAY_MS),
     ).length,
     imageGenerationsToday: images.length,
     videoGenerationsToday: videos.length,
@@ -97,13 +112,15 @@ export function computeMetrics(
 export function buildDailySeries(
   generations: GenerationRecord[],
   days: number,
+  endDate: Date = new Date(),
 ): TimeSeriesPoint[] {
   const points: TimeSeriesPoint[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    dayStart.setDate(dayStart.getDate() - i);
+    const dayStart = new Date(
+      reportingDayStart(endDate).getTime() - i * DAY_MS,
+    );
     const start = dayStart.getTime();
+    if (start < REPORTING_START_MS) continue;
     const end = start + DAY_MS;
     const inDay = generations.filter((g) => {
       const t = toDate(g.createdAt)?.getTime() ?? 0;
@@ -114,10 +131,11 @@ export function buildDailySeries(
     const success = inDay.filter(isCompleted).length;
     const failed = inDay.filter(isFailed).length;
     points.push({
-      date: dayStart.toISOString().slice(0, 10),
+      date: reportingDateKey(dayStart),
       label: dayStart.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
+        timeZone: "Europe/Istanbul",
       }),
       value: image + video,
       image,
@@ -125,9 +143,7 @@ export function buildDailySeries(
       success,
       failed,
       cost: Number(
-        inDay
-          .reduce((sum, g) => sum + (g.estimatedCost ?? 0), 0)
-          .toFixed(2),
+        inDay.reduce((sum, g) => sum + (g.estimatedCost ?? 0), 0).toFixed(2),
       ),
     });
   }
@@ -142,13 +158,15 @@ export function buildDailySeries(
 export function buildCostSeries(
   usageEvents: UsageEvent[],
   days: number,
+  endDate: Date = new Date(),
 ): TimeSeriesPoint[] {
   const points: TimeSeriesPoint[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    dayStart.setDate(dayStart.getDate() - i);
+    const dayStart = new Date(
+      reportingDayStart(endDate).getTime() - i * DAY_MS,
+    );
     const start = dayStart.getTime();
+    if (start < REPORTING_START_MS) continue;
     const end = start + DAY_MS;
     const total = usageEvents.reduce((sum, event) => {
       const t = toDate(event.startedAt)?.getTime() ?? 0;
@@ -157,10 +175,11 @@ export function buildCostSeries(
     }, 0);
     const value = Number(total.toFixed(4));
     points.push({
-      date: dayStart.toISOString().slice(0, 10),
+      date: reportingDateKey(dayStart),
       label: dayStart.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
+        timeZone: "Europe/Istanbul",
       }),
       value,
       cost: value,
@@ -172,24 +191,27 @@ export function buildCostSeries(
 export function buildUserSeries(
   users: MetricUser[],
   days: number,
+  endDate: Date = new Date(),
 ): TimeSeriesPoint[] {
   const points: TimeSeriesPoint[] = [];
   const realUsers = users.filter((user) => !isTestAccount(user));
   for (let i = days - 1; i >= 0; i--) {
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    dayStart.setDate(dayStart.getDate() - i);
+    const dayStart = new Date(
+      reportingDayStart(endDate).getTime() - i * DAY_MS,
+    );
     const start = dayStart.getTime();
+    if (start < REPORTING_START_MS) continue;
     const end = start + DAY_MS;
     const value = realUsers.filter((u) => {
       const t = u.createdAt?.getTime() ?? 0;
       return t >= start && t < end;
     }).length;
     points.push({
-      date: dayStart.toISOString().slice(0, 10),
+      date: reportingDateKey(dayStart),
       label: dayStart.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
+        timeZone: "Europe/Istanbul",
       }),
       value,
     });
@@ -197,9 +219,7 @@ export function buildUserSeries(
   return points;
 }
 
-export function breakdown<T extends string>(
-  items: T[],
-): BreakdownPoint[] {
+export function breakdown<T extends string>(items: T[]): BreakdownPoint[] {
   const counts = new Map<string, number>();
   for (const item of items) {
     const key = item || "unknown";

@@ -42,7 +42,11 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { StatCard } from "@/components/shared/stat-card";
 import { ConfirmActionDialog } from "@/components/shared/confirm-action-dialog";
+import { UserQuotaCard } from "@/components/shared/user-quota-card";
 import { UserPasswordLogin } from "@/components/shared/user-password-login";
+import { UserPurchases } from "@/components/shared/user-purchases";
+import { isInReportingPeriod } from "@/lib/reporting";
+import { fetchPurchases, summarizePurchases } from "@/services/purchases";
 import { CostDisplay } from "@/components/shared/cost-display";
 import {
   AccountStatusBadge,
@@ -83,13 +87,17 @@ export function UsersPage() {
   const [searchParams] = useSearchParams();
   const { user: actor, getIdToken } = useAuth();
   const usersQuery = useAsyncData(fetchUsers, [], { pollIntervalMs: 10000 });
-  const generationsQuery = useAsyncData(fetchGenerations, [], { pollIntervalMs: 10000 });
+  const generationsQuery = useAsyncData(fetchGenerations, [], {
+    pollIntervalMs: 10000,
+  });
   const usageQuery = useAsyncData(fetchUsage, [], { pollIntervalMs: 10000 });
+  const purchasesQuery = useAsyncData(fetchPurchases, [], {
+    pollIntervalMs: 60_000,
+  });
 
   const [planFilter, setPlanFilter] = React.useState<PlanFilter>("all");
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
-  const [testFilter, setTestFilter] =
-    React.useState<TestAccountFilter>("real");
+  const [testFilter, setTestFilter] = React.useState<TestAccountFilter>("real");
   const [selectedUid, setSelectedUid] = React.useState<string | null>(null);
   React.useEffect(() => {
     const uid = searchParams.get("uid");
@@ -115,7 +123,8 @@ export function UsersPage() {
       filterByTestAccount(
         users.filter((user) => {
           if (planFilter !== "all" && user.plan !== planFilter) return false;
-          if (statusFilter !== "all" && user.status !== statusFilter) return false;
+          if (statusFilter !== "all" && user.status !== statusFilter)
+            return false;
           return true;
         }),
         testFilter,
@@ -132,6 +141,14 @@ export function UsersPage() {
     () => users.filter(isTestAccount).length,
     [users],
   );
+  const registeredUsers = realUsers.filter((user) =>
+    isInReportingPeriod(user.createdAt),
+  );
+  const memberUids = new Set(
+    summarizePurchases(purchasesQuery.data ?? []).subscriptions.map(
+      (p) => p.uid,
+    ),
+  );
 
   const selected = React.useMemo(
     () => users.find((u) => u.uid === selectedUid) ?? null,
@@ -146,6 +163,7 @@ export function UsersPage() {
     void usersQuery.refresh();
     void generationsQuery.refresh();
     void usageQuery.refresh();
+    void purchasesQuery.refresh();
   };
 
   const confirmDelete = async () => {
@@ -153,7 +171,11 @@ export function UsersPage() {
     setDeleting(true);
     try {
       const token = await getIdToken();
-      await deleteUser(pending.uid, { uid: actor.uid, email: actor.email }, token);
+      await deleteUser(
+        pending.uid,
+        { uid: actor.uid, email: actor.email },
+        token,
+      );
       toast.success("User deleted.");
       setPending(null);
       setSelectedUid(null);
@@ -175,7 +197,7 @@ export function UsersPage() {
         cell: ({ row }) => (
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">
-              {row.original.email ?? "â€”"}
+              {row.original.email ?? "—"}
             </p>
             <TestAccountBadge
               kind={testAccountKind(row.original)}
@@ -211,7 +233,9 @@ export function UsersPage() {
         header: "Last activity",
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground">
-            {formatRelative(row.original.lastActiveAt ?? row.original.lastLoginAt)}
+            {formatRelative(
+              row.original.lastActiveAt ?? row.original.lastLoginAt,
+            )}
           </span>
         ),
       },
@@ -237,13 +261,17 @@ export function UsersPage() {
         accessorKey: "credits",
         header: "Credits",
         cell: ({ row }) => (
-          <span className="tabular-nums">{formatNumber(row.original.credits)}</span>
+          <span className="tabular-nums">
+            {formatNumber(row.original.credits)}
+          </span>
         ),
       },
       {
         accessorKey: "estimatedTotalCost",
         header: "Est. cost",
-        cell: ({ row }) => <CostDisplay value={row.original.estimatedTotalCost} />,
+        cell: ({ row }) => (
+          <CostDisplay value={row.original.estimatedTotalCost} />
+        ),
       },
       {
         id: "actions",
@@ -261,7 +289,9 @@ export function UsersPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setSelectedUid(row.original.uid)}>
+                <DropdownMenuItem
+                  onClick={() => setSelectedUid(row.original.uid)}
+                >
                   <UserRound className="h-4 w-4" />
                   View details
                 </DropdownMenuItem>
@@ -285,9 +315,17 @@ export function UsersPage() {
                   )}
                   {row.original.status === "disabled" ? "Enable" : "Disable"}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void handlePatchFor(
-                  row.original, { markTestAccount: true }, "Marked as a test account.", actor, usersQuery.refresh,
-                )}>
+                <DropdownMenuItem
+                  onClick={() =>
+                    void handlePatchFor(
+                      row.original,
+                      { markTestAccount: true },
+                      "Marked as a test account.",
+                      actor,
+                      usersQuery.refresh,
+                    )
+                  }
+                >
                   <ShieldAlert className="h-4 w-4" /> Mark as test account
                 </DropdownMenuItem>
                 {testAccountKind(row.original) !== "real" && (
@@ -344,21 +382,41 @@ export function UsersPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total users" value={formatNumber(realUsers.length)} loading={loading} />
         <StatCard
-          label="Active"
-          value={formatNumber(realUsers.filter((u) => u.status === "active").length)}
+          label="Registered since 12 Oct"
+          value={formatNumber(registeredUsers.length)}
           loading={loading}
         />
         <StatCard
-          label="Disabled"
-          value={formatNumber(realUsers.filter((u) => u.status === "disabled").length)}
+          label="Active since 12 Oct"
+          value={formatNumber(
+            realUsers.filter(
+              (u) =>
+                u.status === "active" &&
+                isInReportingPeriod(u.lastActiveAt ?? u.lastLoginAt),
+            ).length,
+          )}
           loading={loading}
         />
         <StatCard
-          label="Paid plans"
-          value={formatNumber(realUsers.filter((u) => u.plan !== "free").length)}
+          label="Disabled · new accounts"
+          value={formatNumber(
+            registeredUsers.filter((u) => u.status === "disabled").length,
+          )}
           loading={loading}
+        />
+        <StatCard
+          label="Paid members since 12 Oct"
+          value={
+            purchasesQuery.error
+              ? "Unavailable"
+              : formatNumber(
+                  realUsers.filter(
+                    (u) => u.plan !== "free" && memberUids.has(u.uid),
+                  ).length,
+                )
+          }
+          loading={loading || purchasesQuery.loading}
         />
       </div>
 
@@ -366,9 +424,9 @@ export function UsersPage() {
         columns={columns}
         data={filtered}
         loading={loading}
-        searchPlaceholder="Search by email or user IDâ€¦"
+        searchPlaceholder="Search by email or user ID…"
         emptyTitle="No users match these filters"
-        emptyDescription="Try clearing the plan or status filters, or adjusting your search. Test accounts are hidden by default â€” choose All users or Test devices to see them."
+        emptyDescription="Try clearing the plan or status filters, or adjusting your search. Test accounts are hidden by default — choose All users or Test devices to see them."
         getRowId={(row) => row.uid}
         onRowClick={(row) => setSelectedUid(row.uid)}
         toolbar={
@@ -401,12 +459,16 @@ export function UsersPage() {
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="disabled">Disabled</SelectItem>
                 <SelectItem value="review">Support review</SelectItem>
-                <SelectItem value="deletion_pending">Deletion pending</SelectItem>
+                <SelectItem value="deletion_pending">
+                  Deletion pending
+                </SelectItem>
               </SelectContent>
             </Select>
             <Select
               value={testFilter}
-              onValueChange={(value) => setTestFilter(value as TestAccountFilter)}
+              onValueChange={(value) =>
+                setTestFilter(value as TestAccountFilter)
+              }
             >
               <SelectTrigger className="h-9 w-[170px]">
                 <SelectValue placeholder="Accounts" />
@@ -425,6 +487,7 @@ export function UsersPage() {
 
       <UserDetailDrawer
         user={selected}
+        users={users}
         open={selected !== null}
         onOpenChange={(open) => !open && setSelectedUid(null)}
         actor={actor}
@@ -454,7 +517,9 @@ export function UsersPage() {
               <li>Firestore profile and generation history</li>
               <li>Stored media and related metadata</li>
             </ul>
-            <p className="font-medium text-destructive">This action cannot be undone.</p>
+            <p className="font-medium text-destructive">
+              This action cannot be undone.
+            </p>
           </div>
         }
       />
@@ -483,6 +548,7 @@ async function handlePatchFor(
 
 function UserDetailDrawer({
   user,
+  users,
   open,
   onOpenChange,
   actor,
@@ -490,13 +556,16 @@ function UserDetailDrawer({
   onRequestDelete,
 }: {
   user: AdminUser | null;
+  users: AdminUser[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   actor: { uid: string; email: string | null } | null;
   onChanged: () => Promise<void>;
   onRequestDelete: (user: AdminUser) => void;
 }) {
-  const generations = useAsyncData(fetchGenerations, [], { pollIntervalMs: 10000 });
+  const generations = useAsyncData(fetchGenerations, [], {
+    pollIntervalMs: 10000,
+  });
   const [creditsInput, setCreditsInput] = React.useState("");
 
   React.useEffect(() => {
@@ -540,18 +609,28 @@ function UserDetailDrawer({
             <AccountStatusBadge status={user.status} />
           </SheetTitle>
           <SheetDescription>
-            UID {user.uid} Â· registered {formatDate(user.createdAt)}
+            UID {user.uid} · registered {formatDate(user.createdAt)}
           </SheetDescription>
         </SheetHeader>
 
         <div className="grid grid-cols-3 gap-2 px-6">
-          <MiniStat label="Images" value={formatNumber(user.imageGenerationCount)} />
-          <MiniStat label="Videos" value={formatNumber(user.videoGenerationCount)} />
+          <MiniStat
+            label="Images"
+            value={formatNumber(user.imageGenerationCount)}
+          />
+          <MiniStat
+            label="Videos"
+            value={formatNumber(user.videoGenerationCount)}
+          />
           <MiniStat label="Credits" value={formatNumber(user.credits)} />
         </div>
 
-        <Tabs defaultValue="overview" className="px-6 pb-6">
-          <TabsList className="w-full">
+        <p className="px-6 text-xs text-muted-foreground">
+          Images, videos and AI cost count activity since 12 Oct 2026. Account
+          registration and current balances are retained.
+        </p>
+        <Tabs key={user.uid} defaultValue="overview" className="px-6 pb-6">
+          <TabsList className="w-full flex-wrap h-auto">
             <TabsTrigger value="overview" className="flex-1">
               Overview
             </TabsTrigger>
@@ -561,12 +640,16 @@ function UserDetailDrawer({
             <TabsTrigger value="credits" className="flex-1">
               Credits
             </TabsTrigger>
+            <TabsTrigger value="purchases" className="flex-1">
+              Purchases
+            </TabsTrigger>
             <TabsTrigger value="failures" className="flex-1">
               Failures
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
+            <UserQuotaCard key={user.uid} uid={user.uid} users={users} />
             <div className="grid grid-cols-2 gap-3">
               <Detail label="Plan" value={PLAN_LABELS[user.plan]} />
               <Detail label="Status" value={user.status} />
@@ -585,7 +668,10 @@ function UserDetailDrawer({
                   }
                 />
               )}
-              <Detail label="Registered" value={formatDateTime(user.createdAt)} />
+              <Detail
+                label="Registered"
+                value={formatDateTime(user.createdAt)}
+              />
               <Detail
                 label="Last login"
                 value={formatDateTime(user.lastLoginAt)}
@@ -607,12 +693,12 @@ function UserDetailDrawer({
                 value={user.freePreviewUsed ? "Yes" : "No"}
               />
               <Detail
-                label="Est. total cost"
+                label="AI cost since 12 Oct"
                 value={<CostDisplay value={user.estimatedTotalCost} />}
               />
               <Detail
                 label="Providers"
-                value={user.providers.join(", ") || "â€”"}
+                value={user.providers.join(", ") || "—"}
               />
             </div>
 
@@ -629,7 +715,9 @@ function UserDetailDrawer({
                   onClick={() =>
                     void patch(
                       { disabled: user.status !== "disabled" },
-                      user.status === "disabled" ? "User enabled." : "User disabled.",
+                      user.status === "disabled"
+                        ? "User enabled."
+                        : "User disabled.",
                     )
                   }
                 >
@@ -657,9 +745,16 @@ function UserDetailDrawer({
                 >
                   <ShieldAlert className="h-4 w-4" /> Mark for review
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => void patch(
-                  { markTestAccount: true }, "Marked as a test account.",
-                )}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void patch(
+                      { markTestAccount: true },
+                      "Marked as a test account.",
+                    )
+                  }
+                >
                   <ShieldAlert className="h-4 w-4" /> Mark as test account
                 </Button>
                 {testAccountKind(user) !== "real" && (
@@ -676,7 +771,11 @@ function UserDetailDrawer({
                     <UserCheck className="h-4 w-4" /> Not a test account
                   </Button>
                 )}
-                <UserPasswordLogin key={user.uid} uid={user.uid} email={user.email} />
+                <UserPasswordLogin
+                  key={user.uid}
+                  uid={user.uid}
+                  email={user.email}
+                />
                 <Button
                   variant="destructive"
                   size="sm"
@@ -688,6 +787,10 @@ function UserDetailDrawer({
             </div>
           </TabsContent>
 
+          <TabsContent value="purchases">
+            <UserPurchases key={user.uid} user={user} />
+          </TabsContent>
+
           <TabsContent value="generations" className="space-y-2">
             {userGenerations.length ? (
               userGenerations.slice(0, 30).map((g) => (
@@ -697,12 +800,14 @@ function UserDetailDrawer({
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm">
-                      {g.type === "image" ? "Image" : "Video"} Â·{" "}
+                      {g.type === "image" ? "Image" : "Video"} ·{" "}
                       {g.model ?? "unknown"}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {formatDateTime(g.createdAt)} Â·{" "}
-                      {g.durationMs ? `${(g.durationMs / 1000).toFixed(1)}s` : "â€”"}
+                      {formatDateTime(g.createdAt)} ·{" "}
+                      {g.durationMs
+                        ? `${(g.durationMs / 1000).toFixed(1)}s`
+                        : "—"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -723,9 +828,12 @@ function UserDetailDrawer({
           <TabsContent value="credits" className="space-y-4">
             <div className="space-y-2">
               <p className="text-sm font-medium">Current balance</p>
-              <p className="text-3xl font-semibold tabular-nums">{user.credits}</p>
+              <p className="text-3xl font-semibold tabular-nums">
+                {user.credits}
+              </p>
               <p className="text-xs text-muted-foreground">
-                Stored as <code>standaloneWallpapersGranted</code> on the user profile.
+                Stored as <code>standaloneWallpapersGranted</code> on the user
+                profile.
               </p>
             </div>
             <div className="flex items-end gap-2">
@@ -765,14 +873,16 @@ function UserDetailDrawer({
               failures.map((g) => (
                 <div key={g.id} className="rounded-md border px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium">{g.errorCode ?? "FAILED"}</p>
+                    <p className="text-sm font-medium">
+                      {g.errorCode ?? "FAILED"}
+                    </p>
                     <GenerationStatusBadge status={g.status} />
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {g.errorMessage ?? "No additional detail available."}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {formatDateTime(g.createdAt)} Â· retries {g.retryCount}
+                    {formatDateTime(g.createdAt)} · retries {g.retryCount}
                   </p>
                 </div>
               ))
@@ -799,13 +909,7 @@ function MiniStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Detail({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="space-y-0.5">
       <p className="text-xs text-muted-foreground">{label}</p>

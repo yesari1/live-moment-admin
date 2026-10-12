@@ -50,6 +50,7 @@ import { backendDeleteUser } from "@/services/backend";
 import { toDate } from "@/lib/format";
 import { applyGenerationPrices, applyUsagePrices } from "@/lib/model-pricing";
 import { fetchModelPrices } from "@/services/model-pricing";
+import { reportingRecords } from "@/lib/reporting";
 
 export interface Actor {
   uid: string;
@@ -67,7 +68,10 @@ const clone = <T>(value: T): T =>
     ? structuredClone(value)
     : (JSON.parse(JSON.stringify(value)) as T);
 
-async function live<T>(fetcher: () => Promise<T | null>, label: string): Promise<T> {
+async function live<T>(
+  fetcher: () => Promise<T | null>,
+  label: string,
+): Promise<T> {
   const result = await fetcher();
   if (result === null) {
     throw new Error(
@@ -96,10 +100,11 @@ export function mergeUserStats(
   const lastGen = new Map<string, Date>();
   const cost = new Map<string, number>();
 
-  for (const g of generations) {
+  for (const g of reportingRecords(generations, (g) => g.createdAt)) {
     if (g.type === "image") images.set(g.uid, (images.get(g.uid) ?? 0) + 1);
     else videos.set(g.uid, (videos.get(g.uid) ?? 0) + 1);
-    if (g.status === "failed") failures.set(g.uid, (failures.get(g.uid) ?? 0) + 1);
+    if (g.status === "failed")
+      failures.set(g.uid, (failures.get(g.uid) ?? 0) + 1);
     const created = latestDate(g.createdAt, g.startedAt, g.completedAt);
     if (created) {
       const current = lastGen.get(g.uid);
@@ -107,7 +112,7 @@ export function mergeUserStats(
     }
   }
 
-  for (const event of usage) {
+  for (const event of reportingRecords(usage, (e) => e.startedAt)) {
     cost.set(
       event.userId,
       (cost.get(event.userId) ?? 0) + (event.estimatedCostUsd ?? 0),
@@ -116,21 +121,32 @@ export function mergeUserStats(
 
   return users.map((user) => ({
     ...user,
-    imageGenerationCount: user.imageGenerationCount || images.get(user.uid) || 0,
-    videoGenerationCount: user.videoGenerationCount || videos.get(user.uid) || 0,
-    failedGenerationCount:
-      user.failedGenerationCount || failures.get(user.uid) || 0,
-    lastGenerationAt: latestDate(user.lastGenerationAt, lastGen.get(user.uid)),
-    lastActiveAt: latestDate(user.lastActiveAt, user.lastLoginAt, user.lastGenerationAt, lastGen.get(user.uid)),
-    estimatedTotalCost:
-      user.estimatedTotalCost || Number((cost.get(user.uid) ?? 0).toFixed(2)),
+    imageGenerationCount: images.get(user.uid) ?? 0,
+    videoGenerationCount: videos.get(user.uid) ?? 0,
+    failedGenerationCount: failures.get(user.uid) ?? 0,
+    lastGenerationAt: lastGen.get(user.uid) ?? null,
+    lastActiveAt: latestDate(
+      user.lastActiveAt,
+      user.lastLoginAt,
+      user.lastGenerationAt,
+      lastGen.get(user.uid),
+    ),
+    estimatedTotalCost: Number((cost.get(user.uid) ?? 0).toFixed(4)),
   }));
 }
 
-export function latestDate(...values: (Date | null | undefined)[]): Date | null {
-  const dates = values.map(value => toDate(value)).filter((value): value is Date =>
-    value !== null && Number.isFinite(value.getTime()));
-  return dates.length ? new Date(Math.max(...dates.map(value => value.getTime()))) : null;
+export function latestDate(
+  ...values: (Date | null | undefined)[]
+): Date | null {
+  const dates = values
+    .map((value) => toDate(value))
+    .filter(
+      (value): value is Date =>
+        value !== null && Number.isFinite(value.getTime()),
+    );
+  return dates.length
+    ? new Date(Math.max(...dates.map((value) => value.getTime())))
+    : null;
 }
 
 export interface UserPatch {
@@ -171,17 +187,19 @@ export async function updateUser(
     recordDemoAudit({
       adminUid: actor.uid,
       adminEmail: actor.email,
-      action: patch.markTestAccount ? "USER_TEST_LABEL_MARKED" : patch.clearTestLabel !== undefined
-        ? "USER_TEST_LABEL_CLEARED"
-        : patch.disabled !== undefined
-          ? patch.disabled
-            ? "USER_DISABLED"
-            : "USER_ENABLED"
-          : patch.credits !== undefined
-            ? "USER_CREDITS_UPDATED"
-            : patch.plan !== undefined
-              ? "USER_PLAN_UPDATED"
-              : "USER_MARKED_FOR_REVIEW",
+      action: patch.markTestAccount
+        ? "USER_TEST_LABEL_MARKED"
+        : patch.clearTestLabel !== undefined
+          ? "USER_TEST_LABEL_CLEARED"
+          : patch.disabled !== undefined
+            ? patch.disabled
+              ? "USER_DISABLED"
+              : "USER_ENABLED"
+            : patch.credits !== undefined
+              ? "USER_CREDITS_UPDATED"
+              : patch.plan !== undefined
+                ? "USER_PLAN_UPDATED"
+                : "USER_MARKED_FOR_REVIEW",
       target: uid,
       before,
       after: clone(user),
@@ -215,8 +233,9 @@ export async function updateUser(
   await appendAuditLogToFirestore({
     adminUid: actor.uid,
     adminEmail: actor.email,
-    action:
-      patch.markTestAccount ? "USER_TEST_LABEL_MARKED" : patch.clearTestLabel !== undefined
+    action: patch.markTestAccount
+      ? "USER_TEST_LABEL_MARKED"
+      : patch.clearTestLabel !== undefined
         ? "USER_TEST_LABEL_CLEARED"
         : patch.disabled !== undefined
           ? patch.disabled
@@ -233,7 +252,10 @@ export async function updateUser(
   });
   const users = await fetchUsersFromFirestore();
   const updated = users?.find((u) => u.uid === uid);
-  if (!updated) throw new Error("User updated, but the refreshed record could not be read.");
+  if (!updated)
+    throw new Error(
+      "User updated, but the refreshed record could not be read.",
+    );
   return updated;
 }
 
@@ -256,7 +278,8 @@ export async function deleteUser(
     });
     return delay(undefined);
   }
-  if (!idToken) throw new Error("An authenticated session is required to delete a user.");
+  if (!idToken)
+    throw new Error("An authenticated session is required to delete a user.");
   await backendDeleteUser(uid, idToken);
   await appendAuditLogToFirestore({
     adminUid: actor.uid,
@@ -281,7 +304,14 @@ export async function deleteUser(
  */
 function buildProviderCatalog(
   models: ModelInfo[],
-  rates: Record<string, { flatUsd: number | null; usdPerSecond: number | null; usdPerImage: number | null }>,
+  rates: Record<
+    string,
+    {
+      flatUsd: number | null;
+      usdPerSecond: number | null;
+      usdPerImage: number | null;
+    }
+  >,
 ): ProviderInfo[] {
   const byProvider = new Map<string, ModelInfo[]>();
   for (const model of models) {
@@ -307,7 +337,8 @@ function buildProviderCatalog(
       videoModels: providerModels.filter((model) => model.type === "video"),
     }))
     .filter(
-      (provider) => provider.imageModels.length > 0 || provider.videoModels.length > 0,
+      (provider) =>
+        provider.imageModels.length > 0 || provider.videoModels.length > 0,
     );
 }
 
@@ -329,39 +360,59 @@ export interface ModelCatalogResult {
  */
 export async function fetchModelCatalog(): Promise<ModelCatalogResult> {
   const overrides = await fetchModelPrices();
-  const applyPrices = (providers: ProviderInfo[]) => providers.map(provider => ({
-    ...provider,
-    imageModels: provider.imageModels.map(enrich),
-    videoModels: provider.videoModels.map(enrich),
-  }));
+  const applyPrices = (providers: ProviderInfo[]) =>
+    providers.map((provider) => ({
+      ...provider,
+      imageModels: provider.imageModels.map(enrich),
+      videoModels: provider.videoModels.map(enrich),
+    }));
   function enrich(model: ModelInfo): ModelInfo {
     const price = overrides[model.id];
-    return !price ? model : { ...model,
-      estimatedCost: price.mode === "per_second" ? null : price.amountUsd,
-      estimatedCostPerSecond: price.mode === "per_second" ? price.amountUsd : null };
+    return !price
+      ? model
+      : {
+          ...model,
+          estimatedCost: price.mode === "per_second" ? null : price.amountUsd,
+          estimatedCostPerSecond:
+            price.mode === "per_second" ? price.amountUsd : null,
+        };
   }
   if (!isLiveData) {
-    return { providers: applyPrices(await delay(clone(BUILTIN_PROVIDERS))), source: "builtin" };
+    return {
+      providers: applyPrices(await delay(clone(BUILTIN_PROVIDERS))),
+      source: "builtin",
+    };
   }
   const [models, rates] = await Promise.all([
     fetchAiModelsFromFirestore(),
     fetchModelRatesFromFirestore(),
   ]);
   if (!models || models.length === 0) {
-    return { providers: applyPrices(clone(BUILTIN_PROVIDERS)), source: "builtin" };
+    return {
+      providers: applyPrices(clone(BUILTIN_PROVIDERS)),
+      source: "builtin",
+    };
   }
-  return { providers: applyPrices(buildProviderCatalog(models, rates ?? {})), source: "firestore" };
+  return {
+    providers: applyPrices(buildProviderCatalog(models, rates ?? {})),
+    source: "firestore",
+  };
 }
 
 /* ------------------------------------------------------------ generations */
 
 export async function fetchGenerations(): Promise<GenerationRecord[]> {
-  if (!isLiveData) return delay(clone(demoState.generations));
-  return live(() => fetchGenerationsFromFirestore(), "Generations");
+  const records = !isLiveData
+    ? await delay(clone(demoState.generations))
+    : await live(() => fetchGenerationsFromFirestore(), "Generations");
+  return reportingRecords(records, (g) => g.createdAt);
 }
 
 async function fetchRawUsage(): Promise<UsageEvent[]> {
-  return !isLiveData ? delay(clone(demoState.usageEvents)) : live(() => fetchUsageFromFirestore(), "Usage events");
+  const events = !isLiveData
+    ? await delay(clone(demoState.usageEvents))
+    : await live(() => fetchUsageFromFirestore(), "Usage events");
+  return reportingRecords(events, (e) => e.startedAt);
 }
 
 export async function fetchUsage(): Promise<UsageEvent[]> {
@@ -384,7 +435,11 @@ export async function fetchGenerationsWithCost(): Promise<GenerationRecord[]> {
     fetchRawUsage(),
     fetchModelPrices(),
   ]);
-  return applyGenerationPrices(generations, applyUsagePrices(usage, prices, generations), prices);
+  return applyGenerationPrices(
+    generations,
+    applyUsagePrices(usage, prices, generations),
+    prices,
+  );
 }
 
 /**
@@ -458,10 +513,7 @@ export async function saveTemplate(
   return template;
 }
 
-export async function deleteTemplate(
-  id: string,
-  actor: Actor,
-): Promise<void> {
+export async function deleteTemplate(id: string, actor: Actor): Promise<void> {
   if (!isLiveData) {
     demoState.templates = demoState.templates.filter((t) => t.id !== id);
     recordDemoAudit({
@@ -496,9 +548,7 @@ export async function fetchRouting(
       ? IMAGE_CONTEXTS.map((c) => c.id)
       : VIDEO_CONTEXTS.map((c) => c.id);
   if (!isLiveData) {
-    return delay(
-      clone(demoState.routing.filter((r) => r.type === type)),
-    );
+    return delay(clone(demoState.routing.filter((r) => r.type === type)));
   }
   return live(
     () => fetchRoutingFromFirestore(type, contexts),
@@ -541,7 +591,8 @@ export async function saveRouting(
     return delay(next);
   }
   const ok = await saveRoutingToFirestore(config, actor.uid);
-  if (!ok) throw new Error("Could not save the routing configuration to Firestore.");
+  if (!ok)
+    throw new Error("Could not save the routing configuration to Firestore.");
   await appendAuditLogToFirestore({
     adminUid: actor.uid,
     adminEmail: actor.email,
@@ -556,7 +607,8 @@ export async function saveRouting(
 /* ------------------------------------------------------------------ plans */
 
 export async function fetchPlans(): Promise<PlanConfig[]> {
-  if (!isLiveData) return delay(clone(DEFAULT_PLANS.length ? demoState.plans : []));
+  if (!isLiveData)
+    return delay(clone(DEFAULT_PLANS.length ? demoState.plans : []));
   return live(() => fetchPlansFromFirestore(), "Plans");
 }
 
@@ -645,17 +697,24 @@ export async function saveAppSettings(
  * the backend through `POST /v1/feedback`; read-only here.
  */
 export async function fetchFeedback(): Promise<FeedbackRecord[]> {
-  if (!isLiveData) return delay(clone(demoState.feedback));
+  if (!isLiveData)
+    return delay(
+      reportingRecords(clone(demoState.feedback), (r) => r.createdAt),
+    );
   const result = await fetchFeedbackFromFirestore();
-  return result ?? [];
+  return reportingRecords(result ?? [], (r) => r.createdAt);
 }
 
 /* ------------------------------------------------------------------- logs */
 
 export async function fetchErrorLogs(): Promise<ErrorLog[]> {
-  if (!isLiveData) return delay(clone(demoState.errorLogs));
+  if (!isLiveData)
+    return delay(
+      reportingRecords(clone(demoState.errorLogs), (r) => r.timestamp),
+    );
   const result = await fetchErrorLogsFromFirestore();
-  if (result && result.length) return result;
+  if (result && result.length)
+    return reportingRecords(result, (r) => r.timestamp);
   // Derive operational failures from generation history when no dedicated
   // error-log collection is populated yet.
   const generations = await fetchGenerations();
@@ -665,10 +724,7 @@ export async function fetchErrorLogs(): Promise<ErrorLog[]> {
       id: `derived_${g.id}`,
       timestamp: g.completedAt ?? g.createdAt,
       severity: g.status === "failed" ? "error" : "warning",
-      category:
-        g.type === "image"
-          ? "image_provider"
-          : "video_provider",
+      category: g.type === "image" ? "image_provider" : "video_provider",
       userId: g.uid,
       generationId: g.id,
       provider: g.provider,
@@ -683,9 +739,12 @@ export async function fetchErrorLogs(): Promise<ErrorLog[]> {
 }
 
 export async function fetchAuditLogs(): Promise<AuditLog[]> {
-  if (!isLiveData) return delay(clone(demoState.auditLogs));
+  if (!isLiveData)
+    return delay(
+      reportingRecords(clone(demoState.auditLogs), (r) => r.createdAt),
+    );
   const result = await fetchAuditLogsFromFirestore();
-  return result ?? [];
+  return reportingRecords(result ?? [], (r) => r.createdAt);
 }
 
 export function recordLocalLog(log: Omit<ErrorLog, "id">) {

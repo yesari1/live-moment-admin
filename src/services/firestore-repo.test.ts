@@ -9,6 +9,7 @@ import {
 } from "@/services/firestore-repo";
 import { mergeUserStats, sumEventCost } from "@/services/data-service";
 import type { UsageEvent } from "@/types";
+import { REPORTING_START_MS } from "@/lib/reporting";
 
 function usageEvent(partial: Partial<UsageEvent>): UsageEvent {
   return {
@@ -82,7 +83,9 @@ describe("mapAiModel", () => {
 
   it("rejects documents without a provider or a known stage", () => {
     expect(mapAiModel("orphan", { stage: "image" })).toBeNull();
-    expect(mapAiModel("orphan", { provider: "pixazo", stage: "audio" })).toBeNull();
+    expect(
+      mapAiModel("orphan", { provider: "pixazo", stage: "audio" }),
+    ).toBeNull();
   });
 
   it("keeps a model disabled when the document says so", () => {
@@ -233,19 +236,35 @@ describe("normalizeStatus", () => {
   });
 });
 
-
 describe("user activity from generation history", () => {
   it("advances stale activity and last generation to the newest completion", () => {
-    const user = mapUser("alice", { lastLoginAt: new Date(1000), lastActiveAt: new Date(2000), lastGenerationAt: new Date(3000) });
-    const generation = mapGeneration("g", { uid: "alice", type: "image", createdAt: new Date(4000), completedAt: new Date(5000), status: "ready" });
+    const at = (ms: number) => new Date(REPORTING_START_MS + ms);
+    const user = mapUser("alice", {
+      lastLoginAt: at(1000),
+      lastActiveAt: at(2000),
+      lastGenerationAt: at(3000),
+    });
+    const generation = mapGeneration("g", {
+      uid: "alice",
+      type: "image",
+      createdAt: at(4000),
+      completedAt: at(5000),
+      status: "ready",
+    });
     const [result] = mergeUserStats([user], [generation], []);
-    expect(result.lastActiveAt?.getTime()).toBe(5000);
-    expect(result.lastGenerationAt?.getTime()).toBe(5000);
-    const [laterLogin] = mergeUserStats([{ ...user, lastLoginAt: new Date(6000) }], [generation], []);
-    expect(laterLogin.lastActiveAt?.getTime()).toBe(6000);
+    expect(result.lastActiveAt?.getTime()).toBe(REPORTING_START_MS + 5000);
+    expect(result.lastGenerationAt?.getTime()).toBe(REPORTING_START_MS + 5000);
+    const [laterLogin] = mergeUserStats(
+      [{ ...user, lastLoginAt: at(6000) }],
+      [generation],
+      [],
+    );
+    expect(laterLogin.lastActiveAt?.getTime()).toBe(REPORTING_START_MS + 6000);
   });
   it("maps persistent manual decisions without removing device evidence", () => {
-    const user = mapUser("alice", { testDevice: { manual: false, suspected: false, firebaseTestLab: true } });
+    const user = mapUser("alice", {
+      testDevice: { manual: false, suspected: false, firebaseTestLab: true },
+    });
     expect(user.testAccountOverride).toBe(false);
     expect(user.testLabelCleared).toBe(true);
     expect(user.testDevice?.kind).toBe("device");

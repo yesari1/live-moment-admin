@@ -16,6 +16,7 @@ import {
 import { getDb } from "@/lib/firebase";
 import { useDemoData } from "@/lib/config";
 import { toDate } from "@/lib/format";
+import { isInReportingPeriod, REPORTING_START_MS } from "@/lib/reporting";
 import { adminFetch, BackendError } from "@/services/backend";
 import {
   DEFAULT_SETTINGS,
@@ -137,8 +138,13 @@ export function sendNotificationTest(
     },
   });
 }
-export function dispatchNotificationCampaign(token: string, campaignId: string): Promise<{
-  id: string; status: CampaignStatus; stats: NotificationCampaign["stats"];
+export function dispatchNotificationCampaign(
+  token: string,
+  campaignId: string,
+): Promise<{
+  id: string;
+  status: CampaignStatus;
+  stats: NotificationCampaign["stats"];
 }> {
   return post("dispatch", token, { campaignId });
 }
@@ -199,17 +205,39 @@ export function watchTemplates(
     fail,
   );
 }
-export function mapNotificationCatalog(id: string, data: Record<string, unknown>): NotificationCatalogEntry {
-  const text = (key: string) => typeof data[key] === "string" ? data[key] as string : "";
-  return { id, delivery: text("delivery"), editableIn: text("editableIn"),
-    templateId: text("templateId") || undefined, channel: text("channel") || undefined,
-    trigger: text("trigger"), textSource: text("textSource"),
-    needsInternet: data.needsInternet === true, notes: text("notes") };
+export function mapNotificationCatalog(
+  id: string,
+  data: Record<string, unknown>,
+): NotificationCatalogEntry {
+  const text = (key: string) =>
+    typeof data[key] === "string" ? (data[key] as string) : "";
+  return {
+    id,
+    delivery: text("delivery"),
+    editableIn: text("editableIn"),
+    templateId: text("templateId") || undefined,
+    channel: text("channel") || undefined,
+    trigger: text("trigger"),
+    textSource: text("textSource"),
+    needsInternet: data.needsInternet === true,
+    notes: text("notes"),
+  };
 }
-export function watchNotificationCatalog(next: (value: NotificationCatalogEntry[]) => void, fail: (e: Error) => void) {
-  return onSnapshot(collection(database(), "notificationCatalog"), snapshot => {
-    next(snapshot.docs.map(d => mapNotificationCatalog(d.id, d.data())).sort((a, b) => a.id.localeCompare(b.id)));
-  }, fail);
+export function watchNotificationCatalog(
+  next: (value: NotificationCatalogEntry[]) => void,
+  fail: (e: Error) => void,
+) {
+  return onSnapshot(
+    collection(database(), "notificationCatalog"),
+    (snapshot) => {
+      next(
+        snapshot.docs
+          .map((d) => mapNotificationCatalog(d.id, d.data()))
+          .sort((a, b) => a.id.localeCompare(b.id)),
+      );
+    },
+    fail,
+  );
 }
 
 export function watchSettings(
@@ -238,20 +266,22 @@ export function watchCampaigns(
     ),
     (snapshot) =>
       next(
-        snapshot.docs.map((d) => {
-          const data = d.data();
-          return {
-            ...content(data),
-            id: d.id,
-            audience: data.audience ?? { kind: "all" },
-            scheduledAt: toDate(data.scheduledAt),
-            createdAt: toDate(data.createdAt),
-            status: data.status,
-            stats: { ...ZERO_STATS, ...data.stats },
-            lastError: data.lastError,
-            deliveryReasons: data.deliveryReasons ?? {},
-          } as NotificationCampaign;
-        }),
+        snapshot.docs
+          .map((d) => {
+            const data = d.data();
+            return {
+              ...content(data),
+              id: d.id,
+              audience: data.audience ?? { kind: "all" },
+              scheduledAt: toDate(data.scheduledAt),
+              createdAt: toDate(data.createdAt),
+              status: data.status,
+              stats: { ...ZERO_STATS, ...data.stats },
+              lastError: data.lastError,
+              deliveryReasons: data.deliveryReasons ?? {},
+            } as NotificationCampaign;
+          })
+          .filter((campaign) => isInReportingPeriod(campaign.createdAt)),
       ),
     fail,
   );
@@ -290,8 +320,15 @@ export async function saveNotificationTemplate(
     throw new Error("Give this template a name.");
   if (!TEMPLATE_IDS.some((id) => id === value.id) && !manual)
     throw new Error("Only seeded notification templates can be edited.");
-  if (value.channel !== (manual || value.id === "generation_ready" ? "product_updates" : "plan_reminders"))
-    throw new Error("Plan templates use plan_reminders; generation-ready and manual templates use product_updates.");
+  if (
+    value.channel !==
+    (manual || value.id === "generation_ready"
+      ? "product_updates"
+      : "plan_reminders")
+  )
+    throw new Error(
+      "Plan templates use plan_reminders; generation-ready and manual templates use product_updates.",
+    );
   if (
     value.id === "plan_ending_soon" &&
     (!Number.isInteger(value.params.daysBefore) ||
@@ -460,7 +497,9 @@ export async function fetchNotificationLogs(
             where(
               "createdAt",
               ">=",
-              Timestamp.fromMillis(Date.now() - days * 86400000),
+              Timestamp.fromMillis(
+                Math.max(REPORTING_START_MS, Date.now() - days * 86400000),
+              ),
             ),
             orderBy("createdAt", "desc"),
           ]
@@ -485,6 +524,7 @@ export async function fetchNotificationLogs(
         reason: data.reason,
       };
     })
+    .filter((log) => isInReportingPeriod(log.createdAt))
     .sort(
       (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0),
     );
