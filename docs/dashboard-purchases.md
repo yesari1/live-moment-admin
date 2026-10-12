@@ -51,10 +51,15 @@ this map. The reader paginates by document ID and flattens orders without counti
 the parent token again. Legacy records use immutable `firstSeenAt` with
 `processedAt` as fallback; completion and re-verification dates are not sale dates.
 
-Revenue uses recorded gross amounts per currency, excluding test, pending,
+Dashboard revenue converts recorded gross amounts to USD with the latest available
+daily Frankfurter rates (https://frankfurter.dev/), refreshed hourly. Rate dates
+are shown; conversions are approximate, not Play payout amounts. Missing rates
+make totals Unavailable rather than silently omitting a currency. No customer or
+order data is sent to the rate provider. Purchase details preserve original
+amounts and currencies. Revenue excludes test, pending,
 cancelled, refunded, partially refunded and unknown orders. Partial refunds are
 conservatively excluded because remaining charge amounts are not modeled. Missing
-amounts make revenue Unavailable; empty periods show No sales. Catalog prices are
+amounts make revenue Unavailable; empty periods show $0.00. Catalog prices are
 never substituted for actual payments. Gross revenue is not net profit.
 
 ## Recovery and verification

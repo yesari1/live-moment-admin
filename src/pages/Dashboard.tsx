@@ -70,6 +70,7 @@ import {
   formatDateTime,
   formatNumber,
 } from "@/lib/format";
+import { amountInUsd, fetchExchangeRates, usdRevenue } from "@/services/exchange-rates";
 import { isTestAccount } from "@/lib/test-accounts";
 import { isInReportingPeriod, reportingDayStart } from "@/lib/reporting";
 import type { DateRange } from "@/types";
@@ -98,6 +99,7 @@ export function DashboardPage() {
   const generations = useAsyncData(fetchGenerations, [], poll);
   const usage = useAsyncData(fetchUsage, [], poll);
   const purchases = useAsyncData(fetchPurchases, [], poll);
+  const exchangeRates = useAsyncData(fetchExchangeRates, [], { pollIntervalMs: 3_600_000 });
   const loading = users.loading || generations.loading || usage.loading;
   const error = users.error ?? generations.error ?? usage.error;
   // Resolve on every render, including background refreshes and midnight rollover.
@@ -134,6 +136,8 @@ export function DashboardPage() {
     rangeDates.to,
   );
   const selectedSales = summarizePurchases(selectedPurchases);
+  const todayUsd = usdRevenue(todaysPurchases, exchangeRates.data);
+  const selectedUsd = usdRevenue(selectedPurchases, exchangeRates.data);
   const filteredPurchases = selectedPurchases.filter(
     (p) =>
       purchaseType === "all" ||
@@ -172,6 +176,7 @@ export function DashboardPage() {
     void generations.refresh();
     void usage.refresh();
     void purchases.refresh();
+    void exchangeRates.refresh();
   };
   const purchaseValue = (value: number | string) =>
     purchases.error ? "Unavailable" : String(value);
@@ -206,8 +211,8 @@ export function DashboardPage() {
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Revenue today"
-          value={purchaseValue(sales.revenue)}
+          label="Revenue today (USD)"
+          value={purchaseValue(exchangeRates.loading ? "—" : todayUsd.value)}
           icon={Wallet}
           loading={purchases.loading}
           hint={
@@ -215,7 +220,7 @@ export function DashboardPage() {
               ? "Purchase data could not be loaded"
               : sales.missingAmounts
                 ? `${sales.missingAmounts} purchases have no recorded amount`
-                : `${sales.granted.length} granted purchases · gross recorded amount`
+                : todayUsd.hint
           }
         />
         <StatCard
@@ -364,7 +369,7 @@ export function DashboardPage() {
                           <TableHead>Customer / first recorded</TableHead>
                           <TableHead>Product</TableHead>
                           <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead className="text-right">Amount (USD)</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -419,7 +424,12 @@ export function DashboardPage() {
                               </TableCell>
                               <TableCell className="text-right tabular-nums whitespace-nowrap">
                                 {p.amount !== null && p.currency ? (
-                                  formatCurrency(p.amount, p.currency)
+                                  <>
+                                    <span className="block">{amountInUsd(p.amount, p.currency, exchangeRates.data) === null
+                                      ? (exchangeRates.loading ? "—" : "Unavailable")
+                                      : formatCurrency(amountInUsd(p.amount, p.currency, exchangeRates.data), "USD")}</span>
+                                    {p.currency !== "USD" && <span className="block text-xs text-muted-foreground">{formatCurrency(p.amount, p.currency)} original</span>}
+                                  </>
                                 ) : (
                                   <span className="text-xs text-muted-foreground">
                                     Not recorded
@@ -502,15 +512,15 @@ export function DashboardPage() {
                 )}
                 <div className="border-t pt-4">
                   <p className="text-xs text-muted-foreground">
-                    Recorded revenue
+                    Revenue (USD)
                   </p>
                   <p className="mt-1 text-lg font-semibold">
-                    {selectedSales.revenue}
+                    {exchangeRates.loading ? "—" : selectedUsd.value}
                   </p>
                   <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                     {selectedSales.missingAmounts
                       ? "Some purchases have no recoverable payment amount. Revenue is incomplete; catalog prices are not substituted for actual payments."
-                      : "Gross recorded amounts, grouped by currency. Store fees and taxes are not deducted."}
+                      : `${selectedUsd.hint}. Converted at the latest available daily rates; store fees and taxes are not deducted.`}
                   </p>
                 </div>
               </CardContent>
