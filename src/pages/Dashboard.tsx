@@ -155,21 +155,14 @@ export function DashboardPage() {
       };
     })
     .sort((a, b) => b.count - a.count);
-  const days =
-    range.preset === "today"
-      ? 1
-      : range.preset === "7d"
-        ? 7
-        : range.preset === "30d"
-          ? 30
-          : Math.max(
-              1,
-              Math.ceil(
-                ((rangeDates.to?.getTime() ?? now.getTime()) -
-                  (rangeDates.from?.getTime() ?? today.getTime())) /
-                  86_400_000,
-              ),
-            );
+  const days = Math.max(
+    1,
+    Math.round(
+      (reportingDayStart(rangeDates.to ?? now).getTime() -
+        reportingDayStart(rangeDates.from ?? today).getTime()) /
+        86_400_000,
+    ) + 1,
+  );
   const seriesEnd = rangeDates.to ?? now;
   const series = buildDailySeries(generations.data ?? [], days, seriesEnd);
   const costSeries = buildCostSeries(usage.data ?? [], days, seriesEnd);
