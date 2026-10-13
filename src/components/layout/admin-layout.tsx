@@ -4,7 +4,6 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { TopHeader } from "@/components/layout/top-header";
 import { ErrorBoundary } from "@/components/shared/error-boundary";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { REPORTING_LABEL } from "@/lib/reporting";
 
 const STORAGE_KEY = "live-moment-admin-sidebar-collapsed";
 
@@ -47,10 +46,6 @@ export function AdminLayout() {
           className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
         >
           <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6">
-            <p className="mb-4 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Reporting starts {REPORTING_LABEL}. Earlier activity is excluded.
-              Existing accounts and balances remain available.
-            </p>
             <ErrorBoundary key={location.pathname}>
               <Outlet />
             </ErrorBoundary>

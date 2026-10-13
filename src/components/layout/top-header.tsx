@@ -61,9 +61,6 @@ export function TopHeader({ onOpenMobileNav }: { onOpenMobileNav: () => void }) 
           <p className="truncate text-sm font-medium">
             {current?.label ?? "Admin"}
           </p>
-          <p className="hidden truncate text-xs text-muted-foreground sm:block">
-            {current?.description}
-          </p>
         </div>
       </div>
 

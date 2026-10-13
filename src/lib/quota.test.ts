@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BackendError } from "@/services/backend";
-import { parseQuotaGrant, quotaErrorMessage, validQuotaReason } from "@/lib/quota";
+import { parseQuotaGrant, quotaErrorMessage, quotaRemaining, validQuotaReason } from "@/lib/quota";
 
 describe("quota adjustment validation", () => {
   it("accepts positive integer grants through 100", () => {
@@ -39,4 +39,12 @@ describe("quota error messages", () => {
   it("maps network failures to a safe retry", () => {
     expect(quotaErrorMessage(new TypeError("Failed to fetch"))).toContain("Retry the same operation safely");
   });
+});
+
+describe("remaining quota", () => {
+  it.each([[0, 1, 1], [1, 1, 0], [4, 6, 2], [7, 6, 0], [0, 0, 0]])(
+    "%s used of %s leaves %s", (used, limit, remaining) => {
+      expect(quotaRemaining(used, limit)).toBe(remaining);
+    },
+  );
 });

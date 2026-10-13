@@ -62,8 +62,7 @@ export function UserPurchases({ user }: { user: AdminUser }) {
       <div>
         <p className="font-medium text-sm">Payments & packages</p>
         <p className="text-xs text-muted-foreground">
-          From 12 Oct 2026 · {summary.granted.length} real payments ·{" "}
-          {summary.revenue}. Test payments do not count toward revenue.
+          {summary.granted.length} payments · {summary.revenue}
         </p>
       </div>
       {older.length > 0 && (
@@ -77,15 +76,9 @@ export function UserPurchases({ user }: { user: AdminUser }) {
           aria-pressed={earlier}
         >
           {earlier
-            ? "Hide earlier test history"
-            : `Show earlier test history (${older.length})`}
+            ? "Hide older purchases"
+            : `Show older purchases (${older.length})`}
         </Button>
-      )}
-      {earlier && (
-        <p className="rounded-md border p-2 text-xs text-muted-foreground">
-          Earlier test history is for this account's support history only. It is
-          excluded from all reports.
-        </p>
       )}
       {history.error ? (
         <ErrorState
@@ -98,7 +91,7 @@ export function UserPurchases({ user }: { user: AdminUser }) {
         </p>
       ) : !visible.length ? (
         <EmptyState
-          title="No purchases since 12 Oct"
+          title="No purchases"
           description="Verified package purchases and subscription renewals will appear here."
           className="border-0"
         />
@@ -133,9 +126,6 @@ export function UserPurchases({ user }: { user: AdminUser }) {
                 <Badge variant="muted">{p.state}</Badge>
                 {p.testPurchase && (
                   <Badge variant="outline">Test payment</Badge>
-                )}
-                {!isInReportingPeriod(p.purchasedAt) && (
-                  <Badge variant="outline">Before reporting start</Badge>
                 )}
               </div>
               {p.type === "subscription" && p.latestOrder && p.expiryTime && (

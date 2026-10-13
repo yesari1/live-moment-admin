@@ -383,12 +383,12 @@ export function UsersPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Registered since 12 Oct"
+          label="Registered users"
           value={formatNumber(registeredUsers.length)}
           loading={loading}
         />
         <StatCard
-          label="Active since 12 Oct"
+          label="Active users"
           value={formatNumber(
             realUsers.filter(
               (u) =>
@@ -406,7 +406,7 @@ export function UsersPage() {
           loading={loading}
         />
         <StatCard
-          label="Paid members since 12 Oct"
+          label="Paid members"
           value={
             purchasesQuery.error
               ? "Unavailable"
@@ -625,10 +625,6 @@ function UserDetailDrawer({
           <MiniStat label="Credits" value={formatNumber(user.credits)} />
         </div>
 
-        <p className="px-6 text-xs text-muted-foreground">
-          Images, videos and AI cost count activity since 12 Oct 2026. Account
-          registration and current balances are retained.
-        </p>
         <Tabs key={user.uid} defaultValue="overview" className="px-6 pb-6">
           <TabsList className="w-full flex-wrap h-auto">
             <TabsTrigger value="overview" className="flex-1">
@@ -693,7 +689,7 @@ function UserDetailDrawer({
                 value={user.freePreviewUsed ? "Yes" : "No"}
               />
               <Detail
-                label="AI cost since 12 Oct"
+                label="AI cost"
                 value={<CostDisplay value={user.estimatedTotalCost} />}
               />
               <Detail

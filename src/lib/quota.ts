@@ -29,3 +29,8 @@ export function quotaErrorMessage(error: unknown): string {
   }
   return "Unable to complete the quota request. Retry the same operation safely.";
 }
+
+/** Usage can exceed the included allowance; remaining rights never go negative. */
+export function quotaRemaining(used: number, limit: number): number {
+  return Math.max(0, limit - used);
+}

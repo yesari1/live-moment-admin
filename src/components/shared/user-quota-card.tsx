@@ -15,6 +15,7 @@ import {
   QUOTA_FIELDS,
   quotaErrorMessage,
   quotaGrantSummary,
+  quotaRemaining,
   validQuotaReason,
 } from "@/lib/quota";
 import {
@@ -171,10 +172,6 @@ export function UserQuotaCard({
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xs text-muted-foreground">
-          Current entitlement balance and billing-cycle usage. Reporting starts
-          on 12 Oct; it does not reset purchased credits or quota limits.
-        </p>
         {demoMode && (
           <p className="text-sm text-muted-foreground">
             Quota adjustments require a live backend session and are unavailable
@@ -204,8 +201,13 @@ export function UserQuotaCard({
                   <div key={field} className="space-y-1">
                     <div className="flex justify-between gap-2 text-sm">
                       <span>{LABELS[field]}</span>
-                      <span className="tabular-nums">
-                        {used} / {limit}
+                      <span className="text-right">
+                        <span className={cn("font-medium tabular-nums", atLimit && "text-warning")}>
+                          {quotaRemaining(used, limit)} left
+                        </span>
+                        <span className="ml-2 text-xs tabular-nums text-muted-foreground">
+                          {used} of {limit} used
+                        </span>
                       </span>
                     </div>
                     <div
@@ -237,17 +239,10 @@ export function UserQuotaCard({
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
               <p>
-                Standalone wallpaper credits granted:{" "}
-                {overview.standaloneWallpapersGranted} (separate from quota).
+                Wallpaper credits: {overview.standaloneWallpapersGranted}
               </p>
               <p>
-                Free preview used: {overview.freePreviewUsed ? "Yes" : "No"}.
-              </p>
-              <p>
-                {overview.cycle === "lifetime"
-                  ? "Grants last for this lifetime cycle."
-                  : "Grants apply only to this billing cycle and expire when it changes."}{" "}
-                The daily creation limit is separate.
+                Free preview: {overview.freePreviewUsed ? "Used" : "Available"}
               </p>
               {earlierGrants && (
                 <p className="text-warning">
@@ -256,82 +251,88 @@ export function UserQuotaCard({
                 </p>
               )}
             </div>
-            <form
-              className="space-y-3 border-t pt-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit("grant");
-              }}
-            >
-              <h4 className="text-sm font-medium">+ Grant</h4>
-              <fieldset
-                disabled={locked || loading || !!loadError}
-                className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3"
+            <details className="border-t pt-4" open={pending !== null || undefined}>
+              <summary className="cursor-pointer text-sm font-medium">Adjust quota</summary>
+              <p className="mt-3 text-xs text-muted-foreground">
+                {overview.cycle === "lifetime"
+                  ? "Extra quota applies to this lifetime cycle."
+                  : "Extra quota expires at the end of this billing cycle."}
+              </p>
+              <form
+                className="mt-4 space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submit("grant");
+                }}
               >
-                {QUOTA_FIELDS.map((field) => (
-                  <div key={field} className="min-w-0 space-y-1">
-                    <Label htmlFor={`${inputId}-${field}`}>
-                      {LABELS[field]}
-                    </Label>
-                    <Input
-                      id={`${inputId}-${field}`}
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      required
-                      value={inputs[field]}
-                      onChange={(event) =>
-                        setInputs((value) => ({
-                          ...value,
-                          [field]: event.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                ))}
-              </fieldset>
-              <div className="space-y-1">
-                <Label htmlFor={`${inputId}-reason`}>Reason (required)</Label>
-                <Textarea
-                  id={`${inputId}-reason`}
-                  required
-                  minLength={3}
-                  maxLength={500}
-                  disabled={locked}
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                  aria-describedby={`${inputId}-reason-help`}
-                />
-                <p
-                  id={`${inputId}-reason-help`}
-                  className="text-xs text-muted-foreground"
+                <fieldset
+                  disabled={locked || loading || !!loadError}
+                  className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3"
                 >
-                  {reason.trim().length} / 500 characters · minimum 3. Used for
-                  grants and resets.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={
-                    locked || loading || !!loadError || !grant || !reasonValid
-                  }
-                >
-                  {saving ? "Working…" : "Grant"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={locked || loading || !!loadError || !reasonValid}
-                  onClick={() => setConfirmReset(true)}
-                >
-                  Reset this cycle
-                </Button>
-              </div>
-            </form>
+                  {QUOTA_FIELDS.map((field) => (
+                    <div key={field} className="min-w-0 space-y-1">
+                      <Label htmlFor={`${inputId}-${field}`}>
+                        {LABELS[field]}
+                      </Label>
+                      <Input
+                        id={`${inputId}-${field}`}
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        required
+                        value={inputs[field]}
+                        onChange={(event) =>
+                          setInputs((value) => ({
+                            ...value,
+                            [field]: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </fieldset>
+                <div className="space-y-1">
+                  <Label htmlFor={`${inputId}-reason`}>Reason (required)</Label>
+                  <Textarea
+                    id={`${inputId}-reason`}
+                    required
+                    minLength={3}
+                    maxLength={500}
+                    disabled={locked}
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                    aria-describedby={`${inputId}-reason-help`}
+                  />
+                  <p
+                    id={`${inputId}-reason-help`}
+                    className="text-xs text-muted-foreground"
+                  >
+                    {reason.trim().length} / 500 · minimum 3 characters
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={
+                      locked || loading || !!loadError || !grant || !reasonValid
+                    }
+                  >
+                    {saving ? "Working…" : "Grant"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={locked || loading || !!loadError || !reasonValid}
+                    onClick={() => setConfirmReset(true)}
+                  >
+                    Reset this cycle
+                  </Button>
+                </div>
+              </form>
+            </details>
             {success && (
               <p role="status" className="text-sm text-success">
                 {success}
@@ -358,8 +359,8 @@ export function UserQuotaCard({
                 </Button>
               </div>
             )}
-            <div className="space-y-3 border-t pt-4">
-              <h4 className="text-sm font-medium">History</h4>
+            <details className="space-y-3 border-t pt-4">
+              <summary className="cursor-pointer text-sm font-medium">History ({history.length})</summary>
               {history.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   No quota changes yet.
@@ -392,7 +393,7 @@ export function UserQuotaCard({
                   </p>
                 </div>
               ))}
-            </div>
+            </details>
             <ConfirmActionDialog
               open={confirmReset}
               onOpenChange={(open) => {
