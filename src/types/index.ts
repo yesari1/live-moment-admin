@@ -360,7 +360,7 @@ export interface FeedbackRecord {
 export interface DateRange {
   from: Date | null;
   to: Date | null;
-  preset: "today" | "7d" | "30d" | "custom";
+  preset: "today" | "yesterday" | "7d" | "30d" | "custom";
 }
 
 export interface DashboardMetrics {

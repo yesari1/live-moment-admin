@@ -56,7 +56,7 @@ import {
   buildCostSeries,
   buildDailySeries,
   buildUserSeries,
-  computeMetrics,
+  computeRangeMetrics,
 } from "@/services/analytics";
 import {
   fetchPurchases,
@@ -72,8 +72,7 @@ import {
   formatNumber,
 } from "@/lib/format";
 import { amountInUsd, fetchExchangeRates, usdRevenue } from "@/services/exchange-rates";
-import { isTestAccount } from "@/lib/test-accounts";
-import { isInReportingPeriod, reportingDayStart } from "@/lib/reporting";
+import { reportingDayStart } from "@/lib/reporting";
 import type { DateRange } from "@/types";
 
 const volumeConfig = {
@@ -117,28 +116,21 @@ export function DashboardPage() {
       ),
     [users.data, generations.data, usage.data],
   );
-  const metrics = computeMetrics(
+  const metrics = computeRangeMetrics(
     enrichedUsers,
     generations.data ?? [],
     usage.data ?? [],
-  );
-  const realUsers = enrichedUsers.filter((user) => !isTestAccount(user));
-  const memberUids = new Set(
-    summarizePurchases(purchases.data ?? []).subscriptions.map((p) => p.uid),
-  );
-  const paidMembers = realUsers.filter(
-    (user) => user.plan !== "free" && memberUids.has(user.uid),
+    rangeDates.from,
+    rangeDates.to,
   );
   const userById = new Map(enrichedUsers.map((user) => [user.uid, user]));
-  const todaysPurchases = purchasesInRange(purchases.data ?? [], today, now);
-  const sales = summarizePurchases(todaysPurchases);
   const selectedPurchases = purchasesInRange(
     purchases.data ?? [],
     rangeDates.from,
     rangeDates.to,
   );
   const selectedSales = summarizePurchases(selectedPurchases);
-  const todayUsd = usdRevenue(todaysPurchases, exchangeRates.data);
+  const sales = selectedSales;
   const selectedUsd = usdRevenue(selectedPurchases, exchangeRates.data);
   const filteredPurchases = selectedPurchases.filter(
     (p) =>
@@ -183,6 +175,16 @@ export function DashboardPage() {
   const purchaseValue = (value: number | string) =>
     purchases.error ? "Unavailable" : String(value);
 
+  const periodName = { today: "Today", yesterday: "Yesterday", "7d": "Last 7 days", "30d": "Last 30 days", custom: "Custom range" }[range.preset];
+  const dateLabel = (date: Date) => date.toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric", timeZone: "Europe/Istanbul",
+  });
+  const periodDates = rangeDates.from && rangeDates.to && rangeDates.from <= rangeDates.to
+    ? reportingDayStart(rangeDates.from).getTime() === reportingDayStart(rangeDates.to).getTime()
+      ? dateLabel(rangeDates.from)
+      : `${dateLabel(rangeDates.from)} – ${dateLabel(rangeDates.to)}`
+    : "No reporting data for this period";
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -200,19 +202,24 @@ export function DashboardPage() {
         }
       />
       {error && <ErrorState message={error} onRetry={refresh} />}
-      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className="font-medium uppercase tracking-wider">
-          Today ·{" "}
-          {today.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          })}
-        </span>
-      </div>
+      <section aria-label="Dashboard reporting period" className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">{periodName} <span className="font-normal text-muted-foreground">· {periodDates}</span></p>
+          <p className="text-xs text-muted-foreground">Applies to all metrics, charts and purchases · Istanbul time</p>
+        </div>
+        <DateRangeFilter
+          value={range}
+          includeYesterday
+          onChange={(value) => {
+            setRange(value);
+            setPage(0);
+          }}
+        />
+      </section>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Revenue (USD)"
-          value={purchaseValue(exchangeRates.loading ? "—" : todayUsd.value)}
+          value={purchaseValue(exchangeRates.loading ? "—" : selectedUsd.value)}
           icon={Wallet}
           loading={purchases.loading}
           hint={
@@ -225,21 +232,22 @@ export function DashboardPage() {
         />
         <StatCard
           label="AI cost"
-          value={error ? "Unavailable" : formatCost(metrics.estimatedCostToday)}
+          value={error ? "Unavailable" : formatCost(metrics.estimatedCost)}
           icon={BadgeDollarSign}
           loading={loading}
-          hint={`${formatCost(metrics.estimatedCostMonth)} this month`}
+          hint="Total for the selected period"
         />
         <StatCard
           label="Membership buyers"
           value={purchaseValue(sales.subscriptionBuyers)}
           icon={CreditCard}
           loading={purchases.loading}
+          hint="Unique buyers in the selected period"
         />
         <StatCard
           label="New users"
           value={
-            users.error ? "Unavailable" : formatNumber(metrics.newUsersToday)
+            users.error ? "Unavailable" : formatNumber(metrics.newUsers)
           }
           icon={UserPlus}
           loading={loading}
@@ -248,7 +256,7 @@ export function DashboardPage() {
       <div className="grid gap-4 rounded-lg bg-muted/30 p-4 sm:grid-cols-3 sm:divide-x">
           <div className="space-y-1 sm:pr-4">
             <p className="text-xs text-muted-foreground">
-              One-time purchases today
+              One-time purchases
             </p>
             <p className="text-xl font-semibold tabular-nums">
               {purchases.loading ? "—" : purchaseValue(sales.oneTime.length)}
@@ -261,32 +269,32 @@ export function DashboardPage() {
             </p>
           </div>
           <div className="space-y-1 sm:px-4">
-            <p className="text-xs text-muted-foreground">Active users today</p>
+            <p className="text-xs text-muted-foreground">Active users</p>
             <p className="text-xl font-semibold tabular-nums">
               {loading
                 ? "—"
                 : users.error
                   ? "Unavailable"
-                  : metrics.activeUsersToday}
+                  : metrics.activeUsers}
             </p>
             <p className="text-xs text-muted-foreground">
-              {metrics.activeUsers7d} active in the last 7 days
+              Recorded activity in the selected period
             </p>
           </div>
           <div className="space-y-1 sm:pl-4">
-            <p className="text-xs text-muted-foreground">Generations today</p>
+            <p className="text-xs text-muted-foreground">Generations</p>
             <p className="text-xl font-semibold tabular-nums">
               {loading
                 ? "—"
                 : error
                   ? "Unavailable"
-                  : metrics.imageGenerationsToday +
-                    metrics.videoGenerationsToday}
+                  : metrics.imageGenerations +
+                    metrics.videoGenerations}
             </p>
             <p className="text-xs text-muted-foreground">
-              {metrics.imageGenerationsToday} image ·{" "}
-              {metrics.videoGenerationsToday} video ·{" "}
-              {metrics.failedGenerationsToday} failed
+              {metrics.imageGenerations} image ·{" "}
+              {metrics.videoGenerations} video ·{" "}
+              {metrics.failedGenerations} failed
             </p>
           </div>
       </div>
@@ -297,13 +305,6 @@ export function DashboardPage() {
             <TabsTrigger value="purchases">Purchases</TabsTrigger>
             <TabsTrigger value="memberships">Memberships</TabsTrigger>
           </TabsList>
-          {view !== "memberships" && <DateRangeFilter
-            value={range}
-            onChange={(value) => {
-              setRange(value);
-              setPage(0);
-            }}
-          />}
         </div>
         <TabsContent value="purchases" className="mt-0">
         {purchases.error ? (
@@ -621,13 +622,13 @@ export function DashboardPage() {
         <TabsContent value="memberships" className="mt-0">
           <Card className="max-w-xl">
             <CardHeader>
-              <CardTitle className="text-sm">Memberships</CardTitle>
+              <CardTitle className="text-sm">Membership buyers</CardTitle>
+              <p className="text-xs text-muted-foreground">Unique buyers by product in the selected period</p>
             </CardHeader>
             <CardContent className="space-y-4">
               {[
-                ["live_weather", "LiveWeather"],
-                ["live_weather_plus", "LiveWeather Plus"],
-                ["free", "Free"],
+                ["live_weather_monthly", "LiveWeather"],
+                ["live_weather_plus_monthly", "LiveWeather Plus"],
               ].map(([plan, label]) => (
                 <div
                   key={plan}
@@ -635,14 +636,11 @@ export function DashboardPage() {
                 >
                   <span>{label}</span>
                   <span className="font-semibold tabular-nums">
-                    {loading
+                    {purchases.loading
                       ? "—"
-                      : (plan === "free"
-                          ? realUsers.filter((user) =>
-                              isInReportingPeriod(user.createdAt),
-                            )
-                          : paidMembers
-                        ).filter((user) => user.plan === plan).length}
+                      : purchaseValue(new Set(selectedSales.subscriptions
+                          .filter((purchase) => purchase.productId === plan)
+                          .map((purchase) => purchase.uid).filter(Boolean)).size)}
                   </span>
                 </div>
               ))}

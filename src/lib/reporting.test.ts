@@ -49,6 +49,13 @@ describe("launch reporting boundary", () => {
       expect(range.from).toEqual(launch);
     }
   });
+  it("resolves yesterday to the complete preceding Istanbul day", () => {
+    clock();
+    vi.setSystemTime(new Date("2026-10-14T00:15:00+03:00"));
+    const range = resolveDateRange({ preset: "yesterday", from: null, to: null });
+    expect(range.from).toEqual(new Date("2026-10-13T00:00:00+03:00"));
+    expect(range.to).toEqual(new Date("2026-10-13T23:59:59.999+03:00"));
+  });
   it("keeps legacy users and their credits while rebuilding all generation and cost counters", () => {
     const user = mapUser("u", {
       createdAt: before,

@@ -9,6 +9,7 @@ import {
   buildCostSeries,
   buildUserSeries,
   computeMetrics,
+  computeRangeMetrics,
 } from "@/services/analytics";
 
 it("anchors all trend charts to a historical custom range", () => {
@@ -53,6 +54,7 @@ function event(overrides: Partial<UsageEvent>): UsageEvent {
 }
 
 interface MetricUser {
+  uid?: string;
   createdAt: Date | null;
   lastLoginAt?: Date | null;
   lastActiveAt?: Date | null;
@@ -105,6 +107,46 @@ function generation(
 
 const deviceLabel: TestDeviceLabel = { kind: "device", since: null };
 const suspectedLabel: TestDeviceLabel = { kind: "suspected", since: null };
+
+describe("selected-period dashboard metrics", () => {
+  it("includes both endpoints, excludes other days and keeps historical activity after a later login", () => {
+    const from = new Date("2026-10-19T00:00:00+03:00");
+    const to = new Date("2026-10-19T23:59:59.999+03:00");
+    const after = new Date(to.getTime() + 1);
+    const result = computeRangeMetrics([
+      user({ uid: "u1", createdAt: from, lastActiveAt: after }),
+      user({ uid: "u2", createdAt: to, lastLoginAt: to }),
+      user({ uid: "u3", createdAt: after, lastActiveAt: after }),
+      user({ uid: "test", createdAt: from, lastActiveAt: from, testDevice: deviceLabel }),
+    ], [
+      generation({ createdAt: from }),
+      generation({ uid: "u2", createdAt: to, type: "video", status: "failed" }),
+      generation({ createdAt: after }),
+      generation({ createdAt: new Date(from.getTime() - 1) }),
+    ], [
+      event({ startedAt: from, estimatedCostUsd: 0.25 }),
+      event({ startedAt: to, estimatedCostUsd: 0.5 }),
+      event({ startedAt: after, estimatedCostUsd: 9 }),
+    ], from, to);
+    expect(result).toEqual({ newUsers: 2, activeUsers: 2, imageGenerations: 1,
+      videoGenerations: 1, failedGenerations: 1, estimatedCost: 0.75 });
+  });
+
+  it("honors launch boundaries, includes test generation spend and returns zero for empty periods", () => {
+    const from = new Date("2026-10-01T00:00:00+03:00");
+    const launch = new Date("2026-10-12T00:00:00+03:00");
+    const result = computeRangeMetrics([user({ uid: "u1", createdAt: launch, testDevice: deviceLabel })],
+      [generation({ createdAt: launch })], [
+        event({ startedAt: from, estimatedCostUsd: 9 }),
+        event({ startedAt: launch, estimatedCostUsd: 0.5 }),
+      ], from, launch);
+    expect(result.newUsers).toBe(0);
+    expect(result.activeUsers).toBe(0);
+    expect(result.imageGenerations).toBe(1);
+    expect(result.estimatedCost).toBe(0.5);
+    expect(computeRangeMetrics([], [], [], from, from).estimatedCost).toBe(0);
+  });
+});
 
 describe("computeMetrics test account exclusion", () => {
   it("excludes labelled accounts from every user count", () => {

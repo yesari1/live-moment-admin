@@ -23,10 +23,45 @@ const DAY_MS = 86_400_000;
  * untouched: robot generations are real spend).
  */
 type MetricUser = TestAccountInput & {
+  uid?: string;
   createdAt: Date | null;
   lastLoginAt?: Date | null;
   lastActiveAt?: Date | null;
 };
+
+/** Selected-period totals, bounded by launch and Istanbul calendar dates. */
+export function computeRangeMetrics(
+  users: MetricUser[],
+  generations: GenerationRecord[],
+  usageEvents: UsageEvent[],
+  from: Date | null,
+  to: Date | null,
+) {
+  const start = Math.max(REPORTING_START_MS, from?.getTime() ?? REPORTING_START_MS);
+  const end = to?.getTime() ?? Date.now();
+  const inRange = (date: Date | null | undefined) =>
+    date != null && date.getTime() >= start && date.getTime() <= end;
+  const selectedGenerations = generations.filter((g) => inRange(g.createdAt));
+  const selectedUsage = usageEvents.filter((e) => inRange(e.startedAt));
+  const activeIds = new Set([
+    ...selectedGenerations.map((g) => g.uid),
+    ...selectedUsage.map((e) => e.userId),
+  ]);
+  const realUsers = users.filter((user) => !isTestAccount(user));
+  return {
+    newUsers: realUsers.filter((user) => inRange(user.createdAt)).length,
+    // Historical activity is retained in generation/usage events even when
+    // the profile's latest activity has moved beyond the selected period.
+    activeUsers: realUsers.filter((user) =>
+      inRange(user.lastActiveAt) || inRange(user.lastLoginAt) ||
+      (user.uid != null && activeIds.has(user.uid)),
+    ).length,
+    imageGenerations: selectedGenerations.filter((g) => g.type === "image").length,
+    videoGenerations: selectedGenerations.filter((g) => g.type === "video").length,
+    failedGenerations: selectedGenerations.filter(isFailed).length,
+    estimatedCost: selectedUsage.reduce((sum, event) => sum + (event.estimatedCostUsd ?? 0), 0),
+  };
+}
 
 function statusOf(record: GenerationRecord): GenerationRecord["status"] {
   return record.status;

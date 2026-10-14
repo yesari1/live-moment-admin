@@ -22,10 +22,12 @@ interface DateRangeFilterProps {
   value: DateRange;
   onChange: (range: DateRange) => void;
   className?: string;
+  includeYesterday?: boolean;
 }
 
 const PRESETS: Array<{ value: DateRange["preset"]; label: string }> = [
   { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
   { value: "7d", label: "7 days" },
   { value: "30d", label: "30 days" },
   { value: "custom", label: "Custom" },
@@ -35,6 +37,7 @@ export function DateRangeFilter({
   value,
   onChange,
   className,
+  includeYesterday = false,
 }: DateRangeFilterProps) {
   const [open, setOpen] = React.useState(false);
   const [from, setFrom] = React.useState(
@@ -58,7 +61,7 @@ export function DateRangeFilter({
   };
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div className={cn("flex flex-wrap items-center gap-2", className)}>
       <Tabs
         value={value.preset}
         onValueChange={(next) =>
@@ -66,7 +69,7 @@ export function DateRangeFilter({
         }
       >
         <TabsList className="h-9">
-          {PRESETS.filter((p) => p.value !== "custom").map((preset) => (
+          {PRESETS.filter((p) => p.value !== "custom" && (includeYesterday || p.value !== "yesterday")).map((preset) => (
             <TabsTrigger key={preset.value} value={preset.value}>
               {preset.label}
             </TabsTrigger>
@@ -134,6 +137,13 @@ export function resolveDateRange(range: DateRange): {
   to: Date | null;
 } {
   const now = new Date();
+  if (range.preset === "yesterday") {
+    const end = reportingDayStart(now).getTime();
+    return {
+      from: clampReportingStart(new Date(end - 86_400_000)),
+      to: new Date(end - 1),
+    };
+  }
   if (range.preset === "today") {
     return { from: clampReportingStart(reportingDayStart(now)), to: now };
   }

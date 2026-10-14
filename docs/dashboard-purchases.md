@@ -6,6 +6,15 @@ Presets and custom ranges cannot include earlier days. The Dashboard defaults to
 Today; later dates continue accumulating normally. Daily chart buckets and daily
 metrics use Istanbul time.
 
+The Dashboard's top-level Today / Yesterday / 7 days / 30 days / Custom filter
+controls revenue, AI cost, unique membership buyers, signups, one-time purchases,
+recorded active users, generation totals, charts and both purchase tabs together.
+The displayed dates show the effective range after the launch cutoff. Memberships
+counts unique purchasers per product in that period, rather than current plan totals.
+Historical active users use generation/usage events plus profile activity/login
+timestamps; logins overwritten by later profile timestamps cannot be reconstructed
+without a login-event history.
+
 ## Scope
 
 - Purchase reports, generation lists and counts, AI costs, feedback, error logs,
