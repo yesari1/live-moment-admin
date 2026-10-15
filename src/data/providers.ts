@@ -36,6 +36,7 @@ export function providerDisplayName(providerId: string): string {
     google: "Google",
     pixazo: "Pixazo",
     higgsfield: "Higgsfield",
+    openai: "OpenAI",
   };
   return known[providerId] ?? titleize(providerId);
 }
@@ -155,6 +156,16 @@ const pixazoVideoModels: ModelInfo[] = [
 
 /** Offline fallback catalog, used in demo mode and when Firestore is unreadable. */
 export const BUILTIN_PROVIDERS: ProviderInfo[] = [
+  {
+    id: "openai",
+    displayName: "OpenAI",
+    enabled: true,
+    description: "Direct OpenAI image generation.",
+    imageModels: [imageModel("openai", "openai_gpt_image_2_5_flare", {
+      displayName: "GPT Image 2.5 Flare (OpenAI Direct)",
+    })],
+    videoModels: [],
+  },
   {
     id: "google",
     displayName: "Google",
