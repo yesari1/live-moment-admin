@@ -99,6 +99,7 @@ export interface GenerationRecord {
   durationMs: number | null;
   estimatedCost: number | null;
   currency: string;
+  costManuallyEdited?: boolean;
   /**
    * Usage events that make up this job's recorded cost. A video job normally
    * has two legs (the keyframe image and the video itself), so the job total is
@@ -290,6 +291,7 @@ export interface AuditLog {
 }
 
 export type AuditAction =
+  | "GENERATION_COST_UPDATED"
   | "MODEL_PRICING_UPDATED"
   | "AI_ROUTING_UPDATED"
   | "PLAN_UPDATED"

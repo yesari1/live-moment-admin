@@ -59,6 +59,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   deleteUser,
   fetchGenerations,
+  fetchGenerationsWithCost,
   fetchUsage,
   fetchUsers,
   mergeUserStats,
@@ -230,6 +231,7 @@ export function UsersPage() {
       },
       {
         accessorKey: "lastActiveAt",
+        accessorFn: (user) => user.lastActiveAt?.getTime() ?? user.lastLoginAt?.getTime() ?? user.createdAt?.getTime() ?? 0,
         header: "Last activity",
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground">
@@ -428,6 +430,7 @@ export function UsersPage() {
         emptyTitle="No users match these filters"
         emptyDescription="Try clearing the plan or status filters, or adjusting your search. Test accounts are hidden by default — choose All users or Test devices to see them."
         getRowId={(row) => row.uid}
+        initialSorting={[{ id: "lastActiveAt", desc: true }, { id: "createdAt", desc: true }]}
         onRowClick={(row) => setSelectedUid(row.uid)}
         toolbar={
           <>
@@ -563,7 +566,7 @@ function UserDetailDrawer({
   onChanged: () => Promise<void>;
   onRequestDelete: (user: AdminUser) => void;
 }) {
-  const generations = useAsyncData(fetchGenerations, [], {
+  const generations = useAsyncData(fetchGenerationsWithCost, [], {
     pollIntervalMs: 10000,
   });
   const [creditsInput, setCreditsInput] = React.useState("");

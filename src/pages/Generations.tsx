@@ -1,4 +1,8 @@
 import * as React from "react";
+import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
+import { useAuth } from "@/hooks/use-auth";
+import { saveGenerationCost } from "@/services/generation-costs";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Check,
@@ -323,7 +327,9 @@ export function GenerationsPage() {
       />
 
       <GenerationDetailDrawer
-        generation={selected}
+        key={selected?.id}
+        generation={records.find(record => record.id === selected?.id) ?? selected}
+        onChanged={query.refresh}
         open={selected !== null}
         onOpenChange={(open) => !open && setSelected(null)}
       />
@@ -335,13 +341,35 @@ function GenerationDetailDrawer({
   generation,
   open,
   onOpenChange,
+  onChanged,
 }: {
   generation: GenerationRecord | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onChanged: () => Promise<void>;
 }) {
+  const { user: actor } = useAuth();
   const [copied, setCopied] = React.useState(false);
+  const [costInput, setCostInput] = React.useState(generation?.estimatedCost?.toString() ?? "");
+  const [savingCost, setSavingCost] = React.useState(false);
   if (!generation) return null;
+
+  const cost = Number(costInput);
+  const validCost = costInput.trim() !== "" && Number.isFinite(cost) && cost >= 0;
+  const saveCost = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!actor || !validCost || savingCost) return;
+    setSavingCost(true);
+    try {
+      await saveGenerationCost(generation.id, cost, actor);
+      toast.success("Estimated cost updated.");
+      await onChanged();
+    } catch (error) {
+      toast.error("Could not update estimated cost", { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setSavingCost(false);
+    }
+  };
 
   const copyId = async () => {
     try {
@@ -416,15 +444,26 @@ function GenerationDetailDrawer({
             <Detail label="Fallback used" value={generation.fallbackUsed ? "Yes" : "No"} />
             <Detail label="Retries" value={String(generation.retryCount)} />
             <Detail label="Duration" value={formatDurationMs(generation.durationMs)} />
-            <Detail
-              label="Estimated cost"
-              value={<CostDisplay value={generation.estimatedCost} />}
-            />
             <Detail label="Created" value={formatDateTime(generation.createdAt)} />
             <Detail label="Completed" value={formatDateTime(generation.completedAt)} />
             <Detail label="Person type" value={generation.personType ?? "—"} />
             <Detail label="Timeout" value={generation.timeout ? "Yes" : "No"} />
           </div>
+
+          <form onSubmit={saveCost} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="generation-cost" className="text-sm font-medium">Estimated cost (USD)</label>
+              {generation.costManuallyEdited && <Badge variant="muted">Manually edited</Badge>}
+            </div>
+            <div className="flex gap-2">
+              <Input id="generation-cost" type="number" min="0" step="any" required
+                value={costInput} onChange={event => setCostInput(event.target.value)} disabled={savingCost} />
+              <Button type="submit" disabled={!actor || !validCost || savingCost || (generation.costManuallyEdited && cost === generation.estimatedCost)}>
+                {savingCost ? "Saving…" : "Save cost"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Enter the provider charge, including 0. Reporting totals update after saving.</p>
+          </form>
 
           {generation.costEvents && generation.costEvents.length > 0 && (
             <>
@@ -434,9 +473,9 @@ function GenerationDetailDrawer({
                   Cost breakdown
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  A job records one usage event per provider call. A video job
-                  normally has two legs: the keyframe image and the video
-                  itself. The job total is the sum of these rows.
+                  {generation.costManuallyEdited
+                    ? "Manual total distributed across provider calls."
+                    : "Estimated charges per provider call."}
                 </p>
                 <div className="space-y-1.5">
                   {generation.costEvents.map((event) => (

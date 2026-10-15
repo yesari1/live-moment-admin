@@ -59,6 +59,7 @@ interface DataTableProps<TData> {
   searchPlaceholder?: string;
   initialPageSize?: number;
   initialColumnVisibility?: VisibilityState;
+  initialSorting?: SortingState;
   toolbar?: React.ReactNode;
   onRowClick?: (row: TData) => void;
   getRowId?: (row: TData) => string;
@@ -74,12 +75,13 @@ export function DataTable<TData>({
   searchPlaceholder = "Search…",
   initialPageSize = 10,
   initialColumnVisibility,
+  initialSorting,
   toolbar,
   onRowClick,
   getRowId,
   className,
 }: DataTableProps<TData>) {
-  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [sorting, setSorting] = React.useState<SortingState>(initialSorting ?? []);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     [],
   );

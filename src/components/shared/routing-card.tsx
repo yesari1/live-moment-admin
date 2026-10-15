@@ -26,7 +26,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -55,7 +54,7 @@ const schema = z
     enabled: z.boolean(),
     primaryModel: z.string().min(1, "Select a primary model."),
     fallbackEnabled: z.boolean(),
-    fallbackModel: z.string().min(1, "Select a fallback model."),
+    fallbackModel: z.string(),
     retryEnabled: z.boolean(),
     retryCount: z.coerce
       .number({ invalid_type_error: "Enter a number." })
@@ -172,10 +171,6 @@ export function RoutingForm({ type, targets, onSave }: RoutingFormProps) {
         <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3">
           <div className="space-y-0.5">
             <FormLabel>Generation enabled</FormLabel>
-            <FormDescription>
-              When off, Live Moment will not generate this media type for the
-              tier. Existing jobs are unaffected.
-            </FormDescription>
           </div>
           <FormField
             control={form.control}
@@ -195,15 +190,12 @@ export function RoutingForm({ type, targets, onSave }: RoutingFormProps) {
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Primary
-          </p>
           <FormField
             control={form.control}
             name="primaryModel"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{type === "image" ? "Image model" : "Video model"}</FormLabel>
+                <FormLabel>Primary model</FormLabel>
                 <FormControl>
                   <ModelSelect
                     type={type}
@@ -211,10 +203,6 @@ export function RoutingForm({ type, targets, onSave }: RoutingFormProps) {
                     onChange={field.onChange}
                   />
                 </FormControl>
-                <FormDescription>
-                  Models are grouped by provider. The provider is stored
-                  automatically based on the model you pick.
-                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -228,10 +216,7 @@ export function RoutingForm({ type, targets, onSave }: RoutingFormProps) {
             render={({ field }) => (
               <FormItem className="flex flex-row items-center justify-between space-y-0">
                 <div className="space-y-0.5">
-                  <FormLabel>Fallback enabled</FormLabel>
-                  <FormDescription>
-                    Use a secondary model automatically if the primary fails.
-                  </FormDescription>
+                  <FormLabel>Fallback</FormLabel>
                 </div>
                 <FormControl>
                   <Switch
@@ -244,7 +229,7 @@ export function RoutingForm({ type, targets, onSave }: RoutingFormProps) {
             )}
           />
 
-          <div className="mt-3">
+          {values.fallbackEnabled && <div className="mt-3">
             <FormField
               control={form.control}
               name="fallbackModel"
@@ -263,14 +248,12 @@ export function RoutingForm({ type, targets, onSave }: RoutingFormProps) {
                 </FormItem>
               )}
             />
-          </div>
+          </div>}
         </div>
 
-        <div className="space-y-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Reliability
-          </p>
-          <div className="grid gap-4 sm:grid-cols-3">
+        <details className="rounded-lg border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Advanced settings</summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
             <FormField
               control={form.control}
               name="retryEnabled"
@@ -278,7 +261,6 @@ export function RoutingForm({ type, targets, onSave }: RoutingFormProps) {
                 <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 space-y-0">
                   <div className="space-y-0.5">
                     <FormLabel>Retry</FormLabel>
-                    <FormDescription>Retry the primary.</FormDescription>
                   </div>
                   <FormControl>
                     <Switch
@@ -323,7 +305,7 @@ export function RoutingForm({ type, targets, onSave }: RoutingFormProps) {
               )}
             />
           </div>
-        </div>
+        </details>
 
         <div className="space-y-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -489,7 +471,6 @@ export function RoutingTierCard({ tier, configs, onSave }: RoutingTierCardProps)
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <CardTitle className="text-base">{tier.label}</CardTitle>
-            <p className="text-xs text-muted-foreground">{tier.description}</p>
           </div>
           <Badge variant="muted" className="shrink-0">
             {tier.imageContexts.length > 1

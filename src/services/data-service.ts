@@ -50,6 +50,8 @@ import { backendDeleteUser } from "@/services/backend";
 import { toDate } from "@/lib/format";
 import { applyGenerationPrices, applyUsagePrices } from "@/lib/model-pricing";
 import { fetchModelPrices } from "@/services/model-pricing";
+import { fetchGenerationCosts } from "@/services/generation-costs";
+import { applyGenerationCostOverrides } from "@/lib/generation-costs";
 import { reportingRecords } from "@/lib/reporting";
 
 export interface Actor {
@@ -130,6 +132,7 @@ export function mergeUserStats(
       user.lastLoginAt,
       user.lastGenerationAt,
       lastGen.get(user.uid),
+      user.createdAt,
     ),
     estimatedTotalCost: Number((cost.get(user.uid) ?? 0).toFixed(4)),
   }));
@@ -416,12 +419,13 @@ async function fetchRawUsage(): Promise<UsageEvent[]> {
 }
 
 export async function fetchUsage(): Promise<UsageEvent[]> {
-  const [events, prices, generations] = await Promise.all([
+  const [events, prices, generations, overrides] = await Promise.all([
     fetchRawUsage(),
     fetchModelPrices(),
     fetchGenerations(),
+    fetchGenerationCosts(),
   ]);
-  return applyUsagePrices(events, prices, generations);
+  return applyGenerationCostOverrides(generations, applyUsagePrices(events, prices, generations), overrides).events;
 }
 
 /**
@@ -430,16 +434,18 @@ export async function fetchUsage(): Promise<UsageEvent[]> {
  * Recorded charges remain the fallback for models without an admin price.
  */
 export async function fetchGenerationsWithCost(): Promise<GenerationRecord[]> {
-  const [generations, usage, prices] = await Promise.all([
+  const [generations, usage, prices, overrides] = await Promise.all([
     fetchGenerations(),
     fetchRawUsage(),
     fetchModelPrices(),
+    fetchGenerationCosts(),
   ]);
-  return applyGenerationPrices(
+  const events = applyUsagePrices(usage, prices, generations);
+  return applyGenerationCostOverrides(applyGenerationPrices(
     generations,
-    applyUsagePrices(usage, prices, generations),
+    events,
     prices,
-  );
+  ), events, overrides).generations;
 }
 
 /**

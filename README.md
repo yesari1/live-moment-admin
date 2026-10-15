@@ -88,6 +88,15 @@ estimates, not an accounting record of the provider invoice.
 
 ## Firestore collections read
 
+Generation details allow saving a manual estimated cost in USD, including zero
+and charges for failed jobs. Each override is stored separately at
+`admin_config/generation_cost_{jobId}` with an atomic `GENERATION_COST_UPDATED`
+audit record. Overrides take precedence over model prices in generation,
+dashboard and user reporting. For multi-call jobs, reporting distributes the
+manual total proportionally across existing provider calls; jobs without usage
+events receive a reporting-only cost row. Original provider records and job
+statuses are preserved. Existing admin rules apply; no rules deployment is needed.
+
 `users`, `generationJobs`, `generationUsageEvents`, `motionTemplates`,
 `ai_routing`, `ai_models`, `plans`, `pricingConfigs`, `feedback`,
 `admin_config`, `admin_audit_logs`, `admin_error_logs`.

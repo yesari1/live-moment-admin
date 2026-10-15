@@ -1,6 +1,6 @@
 import * as React from "react";
 import { toast } from "sonner";
-import { Info, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHeader } from "@/components/shared/page-header";
@@ -82,35 +82,15 @@ export function AIRoutingPage() {
     <div className="space-y-6">
       <PageHeader
         title="AI Routing"
-        description="Choose which AI provider and model Live Moment uses for each tier. Changes take effect on new requests immediately, with no mobile app update."
+        description="Choose models by plan. Saved changes apply to new requests."
       />
-
-      <Alert variant="info">
-        <Info className="h-4 w-4" />
-        <AlertTitle>How routing works</AlertTitle>
-        <AlertDescription>
-          Pick a plan tab, then open its Image or Video tab to set the primary
-          model, an optional fallback, retries and a timeout. The model list is
-          read from the backend's <span className="font-mono">ai_models</span>{" "}
-          collection on every page load, so a model added there — a new
-          Higgsfield model, for example — is selectable straight away. Saving
-          writes the configuration to Firebase; the backend reads it for every
-          new request, picks the model, falls back or retries when needed, and
-          records what was actually used. Already-running jobs are never
-          changed.
-        </AlertDescription>
-      </Alert>
 
       {catalog.source === "builtin" && isLiveData && (
         <Alert variant="warning">
           <TriangleAlert className="h-4 w-4" />
           <AlertTitle>Model list unavailable</AlertTitle>
           <AlertDescription>
-            The <span className="font-mono">ai_models</span> collection could
-            not be read, so the built-in offline catalog is being shown instead.
-            Models added by the backend will be missing. Check that the admin
-            Firestore security rules are deployed and that{" "}
-            <span className="font-mono">ai_models</span> is readable by admins.
+            Showing the offline catalog. Check admin access to ai_models to load current models.
           </AlertDescription>
         </Alert>
       )}
@@ -183,9 +163,6 @@ export function AIRoutingPage() {
                   </li>
                 ))}
               </ul>
-              <p className="text-xs text-muted-foreground">
-                No app update or store release is required.
-              </p>
             </div>
           )
         }
