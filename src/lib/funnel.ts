@@ -10,7 +10,7 @@ export const FUNNEL_LABELS: Record<string, string> = {
   preview_started: "Free preview started",
   preview_ready: "Free preview ready",
   paywall_viewed: "Paywall viewed",
-  purchase_started: "Purchase started",
+  purchase_started: "Play checkout opened",
   purchase: "Purchased",
 };
 
