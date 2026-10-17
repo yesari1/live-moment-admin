@@ -8,6 +8,7 @@ import { FullScreenLoader } from "@/components/shared/full-screen-loader";
 import { LoginPage } from "@/pages/Login";
 import { AccessDeniedPage } from "@/pages/AccessDenied";
 import { DashboardPage } from "@/pages/Dashboard";
+import { FunnelPage } from "@/pages/Funnel";
 import { UsersPage } from "@/pages/Users";
 import { GenerationsPage } from "@/pages/Generations";
 import { ModelPricingPage } from "@/pages/ModelPricing";
@@ -43,6 +44,7 @@ function AppRoutes() {
       />
       <Route element={<ProtectedRoutes />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/funnel" element={<FunnelPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/password-login" element={<Navigate to="/users" replace />} />
         <Route path="/generations" element={<GenerationsPage />} />

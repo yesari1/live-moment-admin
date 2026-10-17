@@ -165,3 +165,43 @@ export async function backendAdminAction(
     "NOT_IMPLEMENTED",
   );
 }
+
+export interface AnalyticsFunnelStep {
+  key: string;
+  devices: number;
+}
+
+export interface AnalyticsFunnel {
+  daily: Array<{
+    date: string;
+    installs: number;
+    activeDevices: number;
+    sessions: number;
+  }>;
+  funnel: AnalyticsFunnelStep[];
+  lastScreen: Array<{ screen: string; devices: number }>;
+  uninstalled: number;
+  meta: {
+    from: string;
+    to: string;
+    generatedAt: string;
+    excludedDevices: number;
+    note: string;
+  };
+}
+
+/** App Funnel from the Firebase Analytics BigQuery export (per device). */
+export async function backendGetAnalyticsFunnel(
+  idToken: string,
+  range?: { from?: string; to?: string },
+): Promise<AnalyticsFunnel> {
+  const query = new URLSearchParams();
+  if (range?.from) query.set("from", range.from);
+  if (range?.to) query.set("to", range.to);
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  const response = await adminFetch(
+    `/v1/admin/analytics/funnel${suffix}`,
+    idToken,
+  );
+  return (await response.json()) as AnalyticsFunnel;
+}

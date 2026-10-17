@@ -2,6 +2,7 @@ import {
   Activity,
   DollarSign,
   Bell,
+  Filter,
   FileText,
   LayoutDashboard,
   Layers,
@@ -26,6 +27,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Dashboard",
     icon: LayoutDashboard,
     description: "Live overview of users, generations and cost.",
+  },
+  {
+    to: "/funnel",
+    label: "Funnel",
+    icon: Filter,
+    description: "Where new devices drop off, from install to purchase.",
   },
   {
     to: "/users",
